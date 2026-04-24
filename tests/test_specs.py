@@ -408,7 +408,7 @@ def test_replication_result_assembles():
     comp = ClaimComparison(
         claim=claim, replicated_value=0.0028,
         absolute_gap=-0.0003, relative_gap=-0.097,
-        tstat_gap=-0.4, tolerance_used=0.001, verdict="close",
+        tstat_gap=-0.4, tolerance_used=0.001, verdict="partial",
     )
     diag = AmbiguityDiagnostic(
         ambiguity=_ambiguity("execution_lag_days", "1"),
@@ -429,7 +429,7 @@ def test_replication_result_assembles():
         provenance=ProvenanceRecord(source_id="orchestrator", source_tier="synthesized"),
     )
     assert result.overall_confidence == "medium"
-    assert result.comparisons[0].verdict == "close"
+    assert result.comparisons[0].verdict == "partial"
     assert result.ambiguity_diagnostics[0].closes_gap is True
 
 

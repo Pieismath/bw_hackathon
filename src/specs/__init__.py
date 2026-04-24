@@ -36,6 +36,14 @@ from src.specs.verification import (
     CriticismCategory,
     AdversarialCritique,
 )
+from src.specs.mapping import (
+    Fidelity,
+    Reasonable,
+    FieldMapping,
+    DataMapping,
+    MappingCheck,
+    VerifiedDataMapping,
+)
 
 __all__ = [
     "ProvenanceRecord",
@@ -67,4 +75,10 @@ __all__ = [
     "Criticism",
     "CriticismCategory",
     "AdversarialCritique",
+    "Fidelity",
+    "Reasonable",
+    "FieldMapping",
+    "DataMapping",
+    "MappingCheck",
+    "VerifiedDataMapping",
 ]

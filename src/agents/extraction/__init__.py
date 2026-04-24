@@ -13,15 +13,23 @@ from src.agents.extraction.extraction_verifier import (
     should_retry,
     verify_spec,
 )
+from src.agents.extraction.adversarial_reviewer import (
+    MODEL as ADVERSARIAL_REVIEWER_MODEL,
+    fold_high_severity_into_spec,
+    review,
+)
 
 __all__ = [
     "METHODOLOGY_EXTRACTOR_MODEL",
     "EXTRACTION_VERIFIER_MODEL",
+    "ADVERSARIAL_REVIEWER_MODEL",
     "build_retry_feedback",
     "extract_and_verify",
     "extract_methodology",
+    "fold_high_severity_into_spec",
     "format_pdf_as_user_content",
     "haiku_support_check",
+    "review",
     "should_retry",
     "verify_spec",
 ]

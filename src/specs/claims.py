@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ClaimVerdict = Literal["match", "close", "divergence", "failure"]
+ClaimVerdict = Literal["match", "partial", "diverged", "opposite_sign"]
 
 
 class SupportingQuote(BaseModel):
