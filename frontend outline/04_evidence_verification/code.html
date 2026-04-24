@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Provenance Ledger - Evidence View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-container": "#392600",
+                        "secondary-fixed": "#8bfb91",
+                        "on-tertiary-fixed": "#271900",
+                        "surface-dim": "#10141a",
+                        "tertiary-fixed-dim": "#fabc45",
+                        "surface-container": "#1c2026",
+                        "on-surface-variant": "#c1c6d7",
+                        "on-tertiary": "#422c00",
+                        "on-surface": "#dfe2eb",
+                        "tertiary-container": "#bd8708",
+                        "secondary": "#6fdd78",
+                        "tertiary-fixed": "#ffdeaa",
+                        "tertiary": "#fabc45",
+                        "outline-variant": "#414755",
+                        "error-container": "#93000a",
+                        "on-secondary-container": "#f7fff1",
+                        "inverse-primary": "#005bc1",
+                        "surface": "#10141a",
+                        "on-secondary-fixed": "#002106",
+                        "inverse-on-surface": "#2d3137",
+                        "surface-tint": "#adc6ff",
+                        "primary-container": "#4b8eff",
+                        "surface-variant": "#31353c",
+                        "secondary-fixed-dim": "#6fdd78",
+                        "on-secondary-fixed-variant": "#005319",
+                        "on-primary": "#002e69",
+                        "surface-container-highest": "#31353c",
+                        "on-secondary": "#00390e",
+                        "surface-container-high": "#262a31",
+                        "primary-fixed": "#d8e2ff",
+                        "on-primary-fixed-variant": "#004493",
+                        "outline": "#8b90a0",
+                        "on-error": "#690005",
+                        "error": "#ffb4ab",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "on-primary-container": "#00285c",
+                        "surface-container-lowest": "#0a0e14",
+                        "background": "#10141a",
+                        "on-background": "#dfe2eb",
+                        "on-primary-fixed": "#001a41",
+                        "surface-container-low": "#181c22",
+                        "inverse-surface": "#dfe2eb",
+                        "secondary-container": "#01872e",
+                        "primary": "#adc6ff",
+                        "surface-bright": "#353940"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "gutter": "12px",
+                        "unit": "4px",
+                        "margin": "16px",
+                        "container-padding": "8px"
+                    },
+                    fontFamily: {
+                        "data-lg": ["JetBrains Mono"],
+                        "headline-sm": ["Inter"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-md": ["Inter"],
+                        "data-sm": ["JetBrains Mono"],
+                        "data-md": ["JetBrains Mono"]
+                    },
+                    fontSize: {
+                        "data-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-caps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "data-sm": ["11px", { "lineHeight": "14px", "fontWeight": "400" }],
+                        "data-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background h-screen w-screen overflow-hidden flex flex-col font-body-md text-body-md selection:bg-primary-container selection:text-on-primary-container">
+<header class="bg-[#0D1117] flex justify-between items-center w-full px-3 h-12 z-50 border-b border-[#30363D] flex-shrink-0">
+<div class="flex items-center gap-6">
+<span class="text-lg font-black text-white tracking-widest uppercase">PAPER REPLICATION MACHINE</span>
+<div class="flex items-center bg-[#21262D] border border-[#30363D] px-2 py-1 h-7 rounded-none">
+<span class="material-symbols-outlined text-[14px] text-[#8B949E]">search</span>
+<input class="bg-transparent border-none text-[10px] font-mono text-white focus:ring-0 w-48 placeholder-[#8B949E] uppercase outline-none ml-2" placeholder="QUERY LEDGER..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="font-['Space_Grotesk'] tracking-tighter uppercase font-bold text-sm text-[#8B949E]">VERDICT: 8.4/10</span>
+<button class="font-['Space_Grotesk'] tracking-tighter uppercase font-bold text-sm text-[#007AFF] border border-[#007AFF] px-3 py-1 hover:bg-[#21262D] transition-colors rounded-none">REPLICATE</button>
+<div class="flex items-center gap-2 border-l border-[#30363D] pl-4 h-6">
+<button class="material-symbols-outlined text-[#8B949E] hover:text-white hover:bg-[#21262D] transition-colors p-1 text-[18px] rounded-none flex items-center justify-center">history</button>
+<button class="material-symbols-outlined text-[#8B949E] hover:text-white hover:bg-[#21262D] transition-colors p-1 text-[18px] rounded-none flex items-center justify-center">terminal</button>
+<button class="material-symbols-outlined text-[#8B949E] hover:text-white hover:bg-[#21262D] transition-colors p-1 text-[18px] rounded-none flex items-center justify-center">settings</button>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<nav class="bg-[#0D1117] border-r border-[#30363D] w-48 flex flex-col z-40 flex-shrink-0 overflow-y-auto transition-all duration-75">
+<div class="p-4 border-b border-[#30363D] flex flex-col gap-1">
+<div class="text-[#58A6FF] font-bold tracking-tight text-xs">THE LEDGER</div>
+<div class="text-[#8B949E] font-mono text-[10px] uppercase tracking-tighter">V1.0.4-STABLE</div>
+</div>
+<div class="flex flex-col py-2 flex-1">
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">description</span> Abstract
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">hub</span> Data Map
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">psychology</span> Logic Ops
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">terminal</span> Execution
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">trending_up</span> Returns
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">insights</span> Alpha
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">query_stats</span> T-Stats
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 bg-[#161B22] text-[#007AFF] border-l-2 border-[#007AFF] font-mono text-[10px] uppercase tracking-tighter" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#007AFF]">verified_user</span> Provenance
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">rate_review</span> Critic 1
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">reviews</span> Critic 2
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">fluorescent</span> Stability
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">grid_view</span> Heatmap
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] font-mono text-[10px] uppercase tracking-tighter group" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:text-white transition-colors">menu_book</span> Final Ledger
+                </a>
+</div>
+<div class="p-4 border-t border-[#30363D]">
+<button class="w-full py-2 border border-[#007AFF] text-[#007AFF] font-mono text-[10px] uppercase tracking-tighter hover:bg-[#007AFF] hover:text-white transition-colors rounded-none">VERIFY PIPELINE</button>
+</div>
+</nav>
+<main class="flex-1 flex overflow-hidden bg-surface-container-low">
+<section class="w-[340px] border-r border-outline-variant bg-surface flex flex-col flex-shrink-0 relative z-10 shadow-[4px_0_12px_rgba(0,0,0,0.2)]">
+<div class="h-10 border-b border-outline-variant flex items-center justify-between px-4 bg-surface-container-high flex-shrink-0">
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-widest uppercase">Data Extraction Canvas</span>
+<div class="flex items-center gap-1.5 px-2 py-0.5 border border-tertiary/30 bg-tertiary/10">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+<span class="font-data-sm text-data-sm text-tertiary uppercase tracking-wider text-[9px]">Verified</span>
+</div>
+</div>
+<div class="p-gutter flex flex-col gap-gutter overflow-y-auto custom-scrollbar flex-1">
+<div class="border border-outline-variant bg-background flex flex-col rounded-none group hover:border-outline transition-colors">
+<div class="p-3 border-b border-outline-variant/50 flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Target Entity</span>
+<div class="font-data-lg text-data-lg text-on-surface flex justify-between items-center">
+                                Rebalance Frequency
+                                <span class="material-symbols-outlined text-outline text-[16px] group-hover:text-primary transition-colors">data_object</span>
+</div>
+</div>
+<div class="p-4 bg-surface-container-lowest flex flex-col gap-2 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-full pointer-events-none"></div>
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Extracted State</span>
+<div class="font-data-lg text-data-lg text-primary flex items-center gap-3 text-[20px]">
+                                Monthly
+                                <span class="material-symbols-outlined text-secondary text-[20px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+</div>
+<div class="border border-outline-variant bg-background flex flex-col rounded-none">
+<div class="p-3 border-b border-outline-variant/50 bg-surface-container flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant">fingerprint</span>
+<span class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">Provenance Metadata</span>
+</div>
+<div class="p-0 flex flex-col">
+<div class="flex justify-between items-center p-2.5 border-b border-outline-variant/30 hover:bg-surface-container-high transition-colors">
+<span class="font-data-sm text-data-sm text-on-surface-variant">Source ID</span>
+<span class="font-data-sm text-data-sm text-on-surface text-right truncate w-32" title="PROSPECTUS_ETF_A1.pdf">PROSPECTUS_ETF_A1.pdf</span>
+</div>
+<div class="flex justify-between items-center p-2.5 border-b border-outline-variant/30 hover:bg-surface-container-high transition-colors">
+<span class="font-data-sm text-data-sm text-on-surface-variant">Coordinate Space</span>
+<span class="font-data-sm text-data-sm text-primary cursor-pointer hover:underline flex items-center gap-1">
+                                    Page 7
+                                    <span class="material-symbols-outlined text-[12px]">open_in_new</span>
+</span>
+</div>
+<div class="flex justify-between items-center p-2.5 border-b border-outline-variant/30 hover:bg-surface-container-high transition-colors">
+<span class="font-data-sm text-data-sm text-on-surface-variant">Heuristic Model</span>
+<div class="flex items-center gap-2">
+<span class="w-16 h-1.5 bg-outline-variant overflow-hidden"><div class="h-full bg-tertiary w-[92%]"></div></span>
+<span class="font-data-sm text-data-sm text-tertiary">Fuzzy (0.92)</span>
+</div>
+</div>
+<div class="flex justify-between items-center p-2.5 border-b border-outline-variant/30 hover:bg-surface-container-high transition-colors">
+<span class="font-data-sm text-data-sm text-on-surface-variant">Extraction Time</span>
+<span class="font-data-sm text-data-sm text-on-surface">14:32:01.442Z</span>
+</div>
+<div class="flex justify-between items-center p-2.5 hover:bg-surface-container-high transition-colors">
+<span class="font-data-sm text-data-sm text-on-surface-variant">Observer Node</span>
+<span class="font-data-sm text-data-sm text-on-surface text-right">Node-Alpha-09</span>
+</div>
+</div>
+</div>
+<div class="border border-outline-variant bg-background p-3 flex flex-col gap-3 rounded-none">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">history_edu</span> Action Log
+                        </span>
+<div class="flex flex-col gap-2 relative pl-2 before:content-[''] before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-outline-variant">
+<div class="flex items-start gap-3 relative">
+<div class="w-2 h-2 rounded-full bg-outline-variant mt-1.5 relative z-10 ring-4 ring-background"></div>
+<div class="flex flex-col">
+<span class="font-data-sm text-data-sm text-on-surface">Document ingested</span>
+<span class="font-data-sm text-data-sm text-outline text-[10px]">14:31:00Z</span>
+</div>
+</div>
+<div class="flex items-start gap-3 relative">
+<div class="w-2 h-2 rounded-full bg-outline-variant mt-1.5 relative z-10 ring-4 ring-background"></div>
+<div class="flex flex-col">
+<span class="font-data-sm text-data-sm text-on-surface">OCR Pass Complete</span>
+<span class="font-data-sm text-data-sm text-outline text-[10px]">14:31:45Z</span>
+</div>
+</div>
+<div class="flex items-start gap-3 relative">
+<div class="w-2 h-2 rounded-full bg-tertiary mt-1.5 relative z-10 ring-4 ring-background shadow-[0_0_6px_rgba(250,188,69,0.5)]"></div>
+<div class="flex flex-col">
+<span class="font-data-sm text-data-sm text-tertiary">Match Detected</span>
+<span class="font-data-sm text-data-sm text-outline text-[10px]">14:32:01Z</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="flex-1 flex flex-col relative bg-[#1c2026] overflow-hidden">
+<div class="h-10 border-b border-outline-variant bg-surface flex items-center justify-between px-4 flex-shrink-0 z-20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline text-[18px]">picture_as_pdf</span>
+<span class="font-data-sm text-data-sm text-on-surface bg-surface-container-high px-2 py-1 border border-outline-variant">PROSPECTUS_ETF_A1.pdf</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center bg-surface-container-highest border border-outline-variant rounded-none h-6">
+<button class="w-6 h-full flex items-center justify-center hover:bg-outline-variant/30 transition-colors text-on-surface"><span class="material-symbols-outlined text-[16px]">chevron_left</span></button>
+<div class="font-data-sm text-data-sm text-on-surface px-3 border-x border-outline-variant h-full flex items-center bg-surface-container-low min-w-[100px] justify-center">
+                                PAGE 7 <span class="text-outline ml-1">/ 142</span>
+</div>
+<button class="w-6 h-full flex items-center justify-center hover:bg-outline-variant/30 transition-colors text-on-surface"><span class="material-symbols-outlined text-[16px]">chevron_right</span></button>
+</div>
+<div class="flex items-center gap-1 bg-surface-container-highest border border-outline-variant rounded-none h-6 px-1">
+<button class="w-6 h-full flex items-center justify-center hover:bg-outline-variant/30 transition-colors text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">remove</span></button>
+<span class="font-data-sm text-data-sm text-on-surface w-12 text-center">125%</span>
+<button class="w-6 h-full flex items-center justify-center hover:bg-outline-variant/30 transition-colors text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">add</span></button>
+</div>
+<div class="flex items-center gap-2 border-l border-outline-variant pl-4 h-6">
+<button class="material-symbols-outlined text-outline hover:text-on-surface text-[18px]">download</button>
+<button class="material-symbols-outlined text-outline hover:text-on-surface text-[18px]">print</button>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-auto bg-[#0a0e14] flex justify-center p-8 custom-scrollbar relative">
+<div class="fixed top-24 right-8 z-30 flex flex-col gap-2">
+<button class="w-8 h-8 bg-surface border border-outline-variant flex items-center justify-center text-on-surface shadow-lg hover:bg-surface-container-high"><span class="material-symbols-outlined text-[18px]">find_in_page</span></button>
+<button class="w-8 h-8 bg-surface border border-outline-variant flex items-center justify-center text-on-surface shadow-lg hover:bg-surface-container-high"><span class="material-symbols-outlined text-[18px]">filter_center_focus</span></button>
+</div>
+<div class="bg-[#dfe2eb] w-full max-w-[850px] min-h-[1100px] shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col relative overflow-hidden transition-transform duration-200 origin-top">
+<div class="absolute inset-0 pointer-events-none opacity-[0.03] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIi8+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiLz4KPC9zdmc+')] mix-blend-multiply"></div>
+<div class="absolute top-12 left-12 right-12 bottom-12 border border-[#b0b5c1] pointer-events-none"></div>
+<div class="absolute bottom-6 right-12 font-data-sm text-data-sm text-[#8b90a0]">7</div>
+<div class="absolute top-6 left-12 font-data-sm text-data-sm text-[#8b90a0] uppercase">Section 4.2 - Portfolio Administration</div>
+<div class="p-20 flex flex-col gap-8 text-[#10141a]">
+<h2 class="font-headline-sm text-[24px] font-bold tracking-tight border-b-2 border-[#10141a] pb-2 mb-2">4.2 Investment Strategy and Rebalancing Protocols</h2>
+<p class="font-body-md text-[15px] leading-[1.7] text-justify">
+                                The Fund employs a strictly quantitative, "passive management" investment approach explicitly designed to track the performance of the Target Index with minimal tracking error. The Fund generally uses a full replication strategy to achieve its investment objective, dictating that it will invest in all constituting securities of the Target Index in exact proportion to their calculated weightings within said Target Index, subject to regulatory constraints and liquidity availability.
+                            </p>
+<p class="font-body-md text-[15px] leading-[1.7] text-justify">
+                                Under standard market conditions, the Fund binds itself to invest at least 80% of its net assets (plus the amount of any sanctioned borrowings for investment purposes) directly in the underlying securities of its Target Index. The remaining allocation may be deployed in American Depositary Receipts ("ADRs"), Global Depositary Receipts ("GDRs"), or highly correlated derivative instruments deemed necessary by the Advisor to synthesize index exposure where direct acquisition is suboptimal.
+                            </p>
+<div class="relative pl-6 py-2">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-[#10141a]"></div>
+<p class="font-body-md text-[15px] leading-[1.8] text-justify relative z-10">
+                                    To ensure continuous alignment with the dynamic composition of the Target Index, the portfolio undergoes systematic, periodic adjustments. Specifically, to minimize tracking drift while managing transaction friction, the portfolio is strictly 
+                                    <span class="relative inline-block group">
+<span class="absolute inset-0 bg-[#fabc45]/40 border border-[#bd8708] shadow-[0_0_0_2px_rgba(250,188,69,0.2)] mix-blend-multiply -m-0.5 rounded-[1px]"></span>
+<span class="relative font-bold text-[#422c00]">...rebalanced on the first business day of every month...</span>
+<span class="absolute left-1/2 -translate-x-1/2 -top-10 bg-surface-container-highest border border-tertiary text-tertiary font-data-sm text-[10px] px-2 py-1 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 flex flex-col items-center">
+<span class="uppercase tracking-widest text-outline text-[8px] mb-0.5">Matched Entity</span>
+                                            Fuzzy Match (Confidence: 0.92)
+                                            <span class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-surface-container-highest border-b border-r border-tertiary rotate-45"></span>
+</span>
+</span>
+                                    taking into account all pending additions, mandatory deletions, corporate actions, and dividend yield recalculations promulgated by the independent Index Provider. Trading costs associated with these mandatory structural adjustments are aggressively minimized through programmed dark pool execution algorithms where legally permissible.
+                                </p>
+<div class="absolute -left-3 -top-3 w-6 h-6 border-2 border-tertiary rounded-full bg-surface-container-highest flex items-center justify-center z-20 shadow-[0_0_10px_rgba(250,188,69,0.4)] animate-pulse">
+<div class="w-2 h-2 bg-tertiary rounded-full"></div>
+</div>
+</div>
+<p class="font-body-md text-[15px] leading-[1.7] text-justify">
+                                The Advisor mathematically projects that, measured over a rolling 36-month period, the correlation coefficient between the Fund's Net Asset Value performance and that of the Target Index (calculated before the deduction of unitary fees and structural expenses) will consistently equal or exceed 0.95. A hypothetical figure of 1.00 would indicate theoretically perfect statistical correlation.
+                            </p>
+</div>
+</div>
+</div>
+</section>
+</main>
+</div>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1c2026; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #414755; 
+            border-radius: 0px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #8b90a0; 
+        }
+    </style>
+</body></html>

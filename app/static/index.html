@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8" />
+<meta content="width=device-width, initial-scale=1.0" name="viewport" />
+<title>Paper Replication Machine — MVP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<!-- Top nav -->
+<nav class="topnav">
+  <div class="brand">PAPER REPLICATION MACHINE</div>
+  <div class="topnav-right">
+    <span class="verdict" id="verdict-badge">VERDICT: —</span>
+    <button class="btn-ghost" id="reset-btn">
+      <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-3px;">restart_alt</span>
+      RESET
+    </button>
+    <button class="btn-primary" id="demo-btn">
+      <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-3px;">auto_awesome</span>
+      LOAD DEMO
+    </button>
+  </div>
+</nav>
+
+<div class="shell">
+  <!-- Side nav -->
+  <aside class="sidenav">
+    <div class="sidenav-head">
+      <div class="sidenav-title">THE LEDGER</div>
+      <div class="sidenav-sub">V0.1 MVP · PHASE 1 + 2</div>
+    </div>
+    <nav class="sidenav-links" id="sidenav-links">
+      <a href="#" data-tab="overview" class="active"><span class="material-symbols-outlined">dashboard</span>Overview</a>
+      <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Spec</a>
+      <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
+      <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
+      <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Backtest</a>
+      <a href="#" data-tab="provenance"><span class="material-symbols-outlined">hub</span>Provenance</a>
+    </nav>
+    <div class="sidenav-foot">
+      <div class="status-pill" id="status-pill">
+        <span class="dot gray"></span>
+        <span id="status-text">IDLE · no paper loaded</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="canvas">
+    <!-- OVERVIEW -->
+    <section class="tab" data-tab="overview">
+      <header class="page-head">
+        <div>
+          <h1>Execution Overview</h1>
+          <p class="sub">Upload a paper, run the extraction + verification + backtest, or load the demo bundle.</p>
+        </div>
+        <div class="head-meta">
+          <span class="meta-pill" id="paper-title">NO PAPER</span>
+        </div>
+      </header>
+
+      <div class="grid-12">
+        <!-- Ingestion -->
+        <div class="card col-8">
+          <div class="card-head">
+            <h3>SOURCE DOCUMENTATION VECTOR</h3>
+            <span class="chip" id="ingest-chip"><span class="dot amber"></span>AWAITING INGESTION</span>
+          </div>
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="file-input" accept=".pdf" hidden />
+            <div class="dropzone-inner">
+              <span class="material-symbols-outlined icon-big">upload_file</span>
+              <h4>Drop PDF Ledger Here</h4>
+              <p>PDF only. On upload, pipeline runs A1 methodology extractor → A2 verifier → (optional) A3 critique. Cached aggressively on disk.</p>
+              <button class="btn-primary" id="pick-btn">BROWSE FILES</button>
+            </div>
+          </div>
+          <div class="papers-list" id="papers-list"></div>
+        </div>
+
+        <!-- Live metrics -->
+        <div class="col-4 col-stack">
+          <div class="card">
+            <div class="card-head">
+              <h3>HEADLINE METRICS</h3>
+              <span class="chip" id="metric-chip"><span class="dot gray"></span>NO RUN</span>
+            </div>
+            <div class="kpi-grid" id="kpi-grid">
+              <div class="kpi"><label>Monthly Return</label><span class="val" id="kpi-monthly">—</span></div>
+              <div class="kpi"><label>t-stat (NW)</label><span class="val" id="kpi-tstat">—</span></div>
+              <div class="kpi"><label>Sharpe (ann)</label><span class="val" id="kpi-sharpe">—</span></div>
+              <div class="kpi"><label>Max Drawdown</label><span class="val" id="kpi-dd">—</span></div>
+              <div class="kpi"><label>Periods</label><span class="val" id="kpi-n">—</span></div>
+              <div class="kpi"><label>Hit Rate</label><span class="val" id="kpi-hit">—</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>SWARM TELEMETRY</h3>
+              <span class="chip"><span class="dot green pulse"></span>LIVE</span>
+            </div>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SPEC -->
+    <section class="tab hidden" data-tab="spec">
+      <header class="page-head">
+        <div>
+          <h1>Replication Spec</h1>
+          <p class="sub">Structured Pydantic contract produced by A1 (methodology extractor) and audited by A2. Every non-default is tethered to a verbatim quote.</p>
+        </div>
+      </header>
+      <div id="spec-body"></div>
+    </section>
+
+    <!-- VERIFICATION -->
+    <section class="tab hidden" data-tab="verification">
+      <header class="page-head">
+        <div>
+          <h1>Quote Verification</h1>
+          <p class="sub">A2 walks every supporting_quote: deterministic fuzzy-match against the PDF, then Haiku judgment on whether the quote actually supports the field's claim.</p>
+        </div>
+      </header>
+      <div id="verification-body"></div>
+    </section>
+
+    <!-- CRITIQUE -->
+    <section class="tab hidden" data-tab="critique">
+      <header class="page-head">
+        <div>
+          <h1>Adversarial Critique (A3)</h1>
+          <p class="sub">Opus reads the paper + A1 spec + A2 report, emits exactly three criticisms: missed, oversimplified, alternative_interpretation.</p>
+        </div>
+      </header>
+      <div id="critique-body"></div>
+    </section>
+
+    <!-- BACKTEST -->
+    <section class="tab hidden" data-tab="backtest">
+      <header class="page-head">
+        <div>
+          <h1>Backtest Result</h1>
+          <p class="sub">Engine output: Newey-West adjusted returns, overlapping tranches, survivorship-flagged provenance.</p>
+        </div>
+      </header>
+      <div id="backtest-body"></div>
+    </section>
+
+    <!-- PROVENANCE -->
+    <section class="tab hidden" data-tab="provenance">
+      <header class="page-head">
+        <div>
+          <h1>Provenance Lineage</h1>
+          <p class="sub">Every number in the pipeline traces back through ProvenanceRecord links to a data source or synthesizing agent.</p>
+        </div>
+      </header>
+      <div id="provenance-body"></div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

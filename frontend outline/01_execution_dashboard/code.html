@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Dashboard / Execution Overview</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error-container": "#ffdad6",
+                    "on-tertiary-container": "#392600",
+                    "secondary-fixed": "#8bfb91",
+                    "on-tertiary-fixed": "#271900",
+                    "surface-dim": "#10141a",
+                    "tertiary-fixed-dim": "#fabc45",
+                    "surface-container": "#1c2026",
+                    "on-surface-variant": "#c1c6d7",
+                    "on-tertiary": "#422c00",
+                    "on-surface": "#dfe2eb",
+                    "tertiary-container": "#bd8708",
+                    "secondary": "#6fdd78",
+                    "tertiary-fixed": "#ffdeaa",
+                    "tertiary": "#fabc45",
+                    "outline-variant": "#414755",
+                    "error-container": "#93000a",
+                    "on-secondary-container": "#f7fff1",
+                    "inverse-primary": "#005bc1",
+                    "surface": "#10141a",
+                    "on-secondary-fixed": "#002106",
+                    "inverse-on-surface": "#2d3137",
+                    "surface-tint": "#adc6ff",
+                    "primary-container": "#4b8eff",
+                    "surface-variant": "#31353c",
+                    "secondary-fixed-dim": "#6fdd78",
+                    "on-secondary-fixed-variant": "#005319",
+                    "on-primary": "#002e69",
+                    "surface-container-highest": "#31353c",
+                    "on-secondary": "#00390e",
+                    "surface-container-high": "#262a31",
+                    "primary-fixed": "#d8e2ff",
+                    "on-primary-fixed-variant": "#004493",
+                    "outline": "#8b90a0",
+                    "on-error": "#690005",
+                    "error": "#ffb4ab",
+                    "primary-fixed-dim": "#adc6ff",
+                    "on-tertiary-fixed-variant": "#5f4100",
+                    "on-primary-container": "#00285c",
+                    "surface-container-lowest": "#0a0e14",
+                    "background": "#10141a",
+                    "on-background": "#dfe2eb",
+                    "on-primary-fixed": "#001a41",
+                    "surface-container-low": "#181c22",
+                    "inverse-surface": "#dfe2eb",
+                    "secondary-container": "#01872e",
+                    "primary": "#adc6ff",
+                    "surface-bright": "#353940"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "gutter": "12px",
+                    "unit": "4px",
+                    "margin": "16px",
+                    "container-padding": "8px"
+            },
+            "fontFamily": {
+                    "data-lg": ["JetBrains Mono"],
+                    "headline-sm": ["Inter"],
+                    "label-caps": ["Space Grotesk"],
+                    "body-md": ["Inter"],
+                    "data-sm": ["JetBrains Mono"],
+                    "data-md": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "data-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                    "headline-sm": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-sm": ["11px", {"lineHeight": "14px", "fontWeight": "400"}],
+                    "data-md": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Custom Scrollbar for Dark Lab Vibe */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #10141a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #414755; 
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #8b90a0; 
+        }
+        
+        /* Ensures explicit material symbols loading */
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md overflow-hidden flex flex-col h-screen">
+<!-- TopNavBar -->
+<nav class="bg-[#0D1117] flex justify-between items-center w-full px-3 h-12 z-50 sticky top-0 border-b border-[#30363D]">
+<div class="text-lg font-black text-white tracking-widest">
+            PAPER REPLICATION MACHINE
+        </div>
+<div class="flex items-center gap-6 font-['Space_Grotesk'] tracking-tighter uppercase font-bold text-sm">
+<span class="text-[#007AFF]">VERDICT: 8.4/10</span>
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors border border-outline-variant px-3 py-1 font-label-caps text-label-caps flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">auto_awesome</span>
+                REPLICATE
+            </button>
+<div class="flex items-center gap-3 border-l border-[#30363D] pl-4">
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1" data-icon="history">
+<span class="material-symbols-outlined">history</span>
+</button>
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1" data-icon="terminal">
+<span class="material-symbols-outlined">terminal</span>
+</button>
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1" data-icon="settings">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+</nav>
+<div class="flex flex-1 overflow-hidden relative">
+<!-- SideNavBar -->
+<aside class="bg-[#0D1117] fixed left-0 top-12 bottom-0 flex flex-col z-40 border-r border-[#30363D] w-48">
+<div class="p-3 border-b border-[#30363D]">
+<h2 class="text-[#58A6FF] font-bold font-label-caps text-label-caps uppercase">THE LEDGER</h2>
+<div class="text-[#8B949E] font-data-sm text-data-sm mt-1">V1.0.4-STABLE</div>
+</div>
+<nav class="flex-1 overflow-y-auto py-2 font-mono text-[10px] uppercase tracking-tighter">
+<!-- Abstract -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">description</span>
+                    Abstract
+                </a>
+<!-- Data Map -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">hub</span>
+                    Data Map
+                </a>
+<!-- Logic Ops -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">psychology</span>
+                    Logic Ops
+                </a>
+<!-- Execution (ACTIVE STATE) -->
+<a class="flex items-center gap-3 px-4 py-2 bg-[#161B22] text-[#007AFF] border-l-2 border-[#007AFF] Transition-all duration-75 opacity-80" href="#">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">terminal</span>
+                    Execution
+                </a>
+<!-- Returns -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+                    Returns
+                </a>
+<!-- Alpha -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">insights</span>
+                    Alpha
+                </a>
+<!-- T-Stats -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">query_stats</span>
+                    T-Stats
+                </a>
+<!-- Provenance -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">verified_user</span>
+                    Provenance
+                </a>
+<!-- Critic 1 -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">rate_review</span>
+                    Critic 1
+                </a>
+<!-- Critic 2 -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">reviews</span>
+                    Critic 2
+                </a>
+<!-- Stability -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">fluorescent</span>
+                    Stability
+                </a>
+<!-- Heatmap -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">grid_view</span>
+                    Heatmap
+                </a>
+<!-- Final Ledger -->
+<a class="flex items-center gap-3 px-4 py-2 text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75" href="#">
+<span class="material-symbols-outlined text-[16px]">menu_book</span>
+                    Final Ledger
+                </a>
+</nav>
+<div class="p-3 border-t border-[#30363D]">
+<button class="w-full py-2 bg-transparent border border-outline-variant text-[#007AFF] hover:bg-[#161B22] font-label-caps text-label-caps uppercase transition-colors">
+                    VERIFY PIPELINE
+                </button>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-48 flex-1 overflow-y-auto p-margin h-full bg-surface-container-lowest">
+<div class="grid grid-cols-12 gap-gutter h-full max-w-[1600px] mx-auto">
+<!-- Left Column: Input Vectors -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-gutter h-full">
+<!-- Drag & Drop Zone -->
+<div class="bg-surface-container-low border border-outline-variant flex flex-col min-h-[300px] relative">
+<div class="absolute top-0 right-0 p-2 flex gap-2">
+<span class="bg-surface-container-highest px-2 py-1 font-data-sm text-data-sm text-on-surface-variant flex items-center gap-1 border border-outline-variant">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                                AWAITING INGESTION
+                            </span>
+</div>
+<div class="p-3 border-b border-outline-variant flex items-center justify-between bg-surface-container">
+<h3 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">SOURCE DOCUMENTATION VECTOR</h3>
+</div>
+<div class="flex-1 m-4 border-2 border-dashed border-outline-variant bg-[#0D1117] flex flex-col items-center justify-center text-center p-8 hover:border-primary-container transition-colors cursor-pointer group" data-alt="Subtle diagonal striping pattern in dark gray to indicate dropzone area" style="background-image: linear-gradient(45deg, rgba(28,32,38,0.5) 25%, transparent 25%, transparent 50%, rgba(28,32,38,0.5) 50%, rgba(28,32,38,0.5) 75%, transparent 75%, transparent); background-size: 4px 4px;">
+<div class="w-16 h-16 rounded bg-surface-container-high border border-outline-variant flex items-center justify-center mb-4 group-hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[32px] text-on-surface-variant">upload_file</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface mb-2">Drop PDF Ledger Here</h4>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-md">
+                                System requires high-fidelity PDF, raw TeX, or CSV matrices. Strict provenance tracking initiated upon upload.
+                            </p>
+</div>
+</div>
+<!-- Focus Prompt Area -->
+<div class="bg-surface-container-low border border-outline-variant flex flex-col">
+<div class="p-3 border-b border-outline-variant flex items-center justify-between bg-surface-container">
+<h3 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">EXECUTION PARAMETERS (FOCUS PROMPT)</h3>
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">code_blocks</span>
+</div>
+<div class="p-0">
+<textarea class="w-full h-32 bg-surface-container-lowest text-on-surface font-data-md text-data-md p-4 border-0 focus:ring-1 focus:ring-primary-container resize-none" placeholder="&gt; Define replication constraints, specific variables to isolate, or override default agent heuristics..."></textarea>
+</div>
+<div class="p-2 border-t border-outline-variant bg-surface-container flex justify-between items-center">
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-surface-container-highest border border-outline-variant font-data-sm text-data-sm text-on-surface-variant hover:text-on-surface cursor-pointer">/isolate-t-stats</span>
+<span class="px-2 py-1 bg-surface-container-highest border border-outline-variant font-data-sm text-data-sm text-on-surface-variant hover:text-on-surface cursor-pointer">/ignore-appendix</span>
+</div>
+<button class="bg-primary-container text-on-primary-container font-label-caps text-label-caps px-4 py-1.5 uppercase hover:opacity-90">INITIALIZE RUN</button>
+</div>
+</div>
+<!-- Data Table Preview (Empty State) -->
+<div class="bg-surface-container-low border border-outline-variant flex-1 flex flex-col overflow-hidden">
+<div class="p-3 border-b border-outline-variant flex items-center justify-between bg-surface-container">
+<h3 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">EXTRACTION MATRIX PREVIEW</h3>
+<div class="flex items-center gap-4 font-data-sm text-data-sm text-on-surface-variant">
+<span>COLS: 0</span>
+<span>ROWS: 0</span>
+</div>
+</div>
+<div class="flex-1 bg-surface-container-lowest flex items-center justify-center opacity-50">
+<div class="font-data-md text-data-md text-on-surface-variant flex flex-col items-center gap-2">
+<span class="material-symbols-outlined text-[24px]">grid_off</span>
+                                 NO MATRIX DATA LOADED
+                             </div>
+</div>
+</div>
+</div>
+<!-- Right Column: Live Stream & Metadata -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-gutter h-full">
+<!-- Live Stream Logs -->
+<div class="bg-surface-container-low border border-outline-variant flex-1 flex flex-col overflow-hidden">
+<div class="p-3 border-b border-outline-variant flex items-center justify-between bg-surface-container">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<h3 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">SWARM TELEMETRY (LIVE)</h3>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-[16px]">filter_list</span></button>
+</div>
+<div class="flex-1 overflow-y-auto bg-[#0D1117] font-data-sm text-data-sm">
+<table class="w-full text-left border-collapse">
+<tbody class="divide-y divide-outline-variant/30">
+<!-- Log Entry -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="p-2 w-24 text-on-surface-variant border-r border-outline-variant/30 align-top">
+                                            [10:42:01.004]
+                                        </td>
+<td class="p-2 align-top">
+<span class="text-primary mr-2">[A1_ORCHESTRATOR]</span>
+<span class="text-on-surface">Agent initialized. Subscribing to block stream.</span>
+</td>
+</tr>
+<!-- Log Entry -->
+<tr class="hover:bg-surface-container-high/50 transition-colors bg-surface-container-lowest">
+<td class="p-2 w-24 text-on-surface-variant border-r border-outline-variant/30 align-top">
+                                            [10:42:01.152]
+                                        </td>
+<td class="p-2 align-top">
+<span class="text-tertiary mr-2">[B2_EXTRACTOR]</span>
+<span class="text-on-surface">Polling methodology section for semantic anchors...</span>
+</td>
+</tr>
+<!-- Log Entry -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="p-2 w-24 text-on-surface-variant border-r border-outline-variant/30 align-top">
+                                            [10:42:01.889]
+                                        </td>
+<td class="p-2 align-top">
+<span class="text-tertiary mr-2">[B2_EXTRACTOR]</span>
+<span class="text-on-surface">WARNING: transaction costs implicitly assumed. Flagging for Critic review.</span>
+</td>
+</tr>
+<!-- Log Entry -->
+<tr class="hover:bg-surface-container-high/50 transition-colors bg-surface-container-lowest">
+<td class="p-2 w-24 text-on-surface-variant border-r border-outline-variant/30 align-top">
+                                            [10:42:02.010]
+                                        </td>
+<td class="p-2 align-top">
+<span class="text-secondary mr-2">[C1_CRITIC]</span>
+<span class="text-on-surface">Methodology mapped. Confidence score: 0.92</span>
+</td>
+</tr>
+<!-- Log Entry -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="p-2 w-24 text-on-surface-variant border-r border-outline-variant/30 align-top">
+                                            [10:42:02.450]
+                                        </td>
+<td class="p-2 align-top">
+<span class="text-primary-container mr-2">[D4_DATA_MAP]</span>
+<span class="text-on-surface">Awaiting document ingestion to bind variables.</span>
+<span class="animate-pulse ml-1 text-on-surface-variant">_</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- System Resource Widget -->
+<div class="bg-surface-container-low border border-outline-variant flex flex-col h-48">
+<div class="p-3 border-b border-outline-variant flex items-center justify-between bg-surface-container">
+<h3 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">RESOURCE ALLOCATION</h3>
+</div>
+<div class="p-4 flex flex-col gap-4 font-data-sm text-data-sm">
+<div>
+<div class="flex justify-between text-on-surface-variant mb-1">
+<span>LLM COMPUTE TIER</span>
+<span class="text-on-surface">TIER-1 (DEDICATED)</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest overflow-hidden">
+<div class="h-full bg-primary-container w-[15%]"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-on-surface-variant mb-1">
+<span>MEMORY PRESSURE</span>
+<span class="text-secondary">NORMAL [1.2GB/16GB]</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest overflow-hidden">
+<div class="h-full bg-secondary w-[8%]"></div>
+</div>
+</div>
+<div class="mt-auto border-t border-outline-variant pt-2 flex justify-between items-center">
+<span class="text-on-surface-variant">SESSION ID</span>
+<span class="text-on-surface font-bold">REQ-0992-FX</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

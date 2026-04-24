@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Divergence &amp; Robustness Lab</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error-container": "#ffdad6",
+                    "on-tertiary-container": "#392600",
+                    "secondary-fixed": "#8bfb91",
+                    "on-tertiary-fixed": "#271900",
+                    "surface-dim": "#10141a",
+                    "tertiary-fixed-dim": "#fabc45",
+                    "surface-container": "#1c2026",
+                    "on-surface-variant": "#c1c6d7",
+                    "on-tertiary": "#422c00",
+                    "on-surface": "#dfe2eb",
+                    "tertiary-container": "#bd8708",
+                    "secondary": "#6fdd78",
+                    "tertiary-fixed": "#ffdeaa",
+                    "tertiary": "#fabc45",
+                    "outline-variant": "#414755",
+                    "error-container": "#93000a",
+                    "on-secondary-container": "#f7fff1",
+                    "inverse-primary": "#005bc1",
+                    "surface": "#10141a",
+                    "on-secondary-fixed": "#002106",
+                    "inverse-on-surface": "#2d3137",
+                    "surface-tint": "#adc6ff",
+                    "primary-container": "#4b8eff",
+                    "surface-variant": "#31353c",
+                    "secondary-fixed-dim": "#6fdd78",
+                    "on-secondary-fixed-variant": "#005319",
+                    "on-primary": "#002e69",
+                    "surface-container-highest": "#31353c",
+                    "on-secondary": "#00390e",
+                    "surface-container-high": "#262a31",
+                    "primary-fixed": "#d8e2ff",
+                    "on-primary-fixed-variant": "#004493",
+                    "outline": "#8b90a0",
+                    "on-error": "#690005",
+                    "error": "#ffb4ab",
+                    "primary-fixed-dim": "#adc6ff",
+                    "on-tertiary-fixed-variant": "#5f4100",
+                    "on-primary-container": "#00285c",
+                    "surface-container-lowest": "#0a0e14",
+                    "background": "#10141a",
+                    "on-background": "#dfe2eb",
+                    "on-primary-fixed": "#001a41",
+                    "surface-container-low": "#181c22",
+                    "inverse-surface": "#dfe2eb",
+                    "secondary-container": "#01872e",
+                    "primary": "#adc6ff",
+                    "surface-bright": "#353940"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "gutter": "12px",
+                    "unit": "4px",
+                    "margin": "16px",
+                    "container-padding": "8px"
+            },
+            "fontFamily": {
+                    "data-lg": ["JetBrains Mono"],
+                    "headline-sm": ["Inter"],
+                    "label-caps": ["Space Grotesk"],
+                    "body-md": ["Inter"],
+                    "data-sm": ["JetBrains Mono"],
+                    "data-md": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "data-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                    "headline-sm": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-sm": ["11px", {"lineHeight": "14px", "fontWeight": "400"}],
+                    "data-md": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Base brutalist overrides */
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #30363D; }
+        ::-webkit-scrollbar-thumb { background: #414755; }
+        body { background-color: #10141a; color: #dfe2eb; overflow: hidden; }
+        .brutalist-border { border: 1px solid #30363D; }
+    </style>
+</head>
+<body class="flex flex-col h-screen font-body-md text-body-md">
+<!-- TopNavBar -->
+<header class="bg-[#0D1117] flex justify-between items-center w-full px-3 h-12 z-50 fixed top-0 border-b border-[#30363D]">
+<div class="flex items-center gap-4">
+<span class="text-lg font-black text-white tracking-widest">PAPER REPLICATION MACHINE</span>
+<!-- Search Bar (Left) -->
+<div class="relative flex items-center bg-[#161B22] border border-[#30363D] rounded-none px-2 py-1 ml-4 focus-within:border-[#007AFF] transition-colors">
+<span class="material-symbols-outlined text-[#8B949E] text-[16px] mr-2">search</span>
+<input class="bg-transparent border-none text-white font-data-sm text-data-sm focus:ring-0 w-64 placeholder-[#8B949E] p-0" placeholder="QUERY LEDGER..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-3 font-['Space_Grotesk'] tracking-tighter uppercase font-bold text-sm">
+<span class="text-[#007AFF]">VERDICT: 8.4/10</span>
+<button class="bg-[#21262D] text-white px-3 py-1 border border-[#30363D] hover:bg-[#30363D] transition-colors">REPLICATE</button>
+</div>
+<div class="flex items-center gap-2 border-l border-[#30363D] pl-4">
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1 rounded-none flex items-center justify-center h-8 w-8">
+<span class="material-symbols-outlined text-[20px]">history</span>
+</button>
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1 rounded-none flex items-center justify-center h-8 w-8">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</button>
+<button class="text-[#8B949E] hover:bg-[#21262D] transition-colors p-1 rounded-none flex items-center justify-center h-8 w-8">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+</button>
+</div>
+</div>
+</header>
+<div class="flex flex-1 pt-12 overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-[#0D1117] docked vertical left-0 h-full border-r border-[#30363D] w-48 fixed left-0 top-12 bottom-0 flex flex-col z-40">
+<div class="p-4 border-b border-[#30363D]">
+<h2 class="font-headline-sm text-headline-sm text-white mb-1">THE LEDGER</h2>
+<div class="text-[#58A6FF] font-bold font-data-sm text-data-sm">V1.0.4-STABLE</div>
+</div>
+<div class="flex-1 overflow-y-auto py-2 flex flex-col gap-1">
+<!-- Abstract -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">description</span>
+                    Abstract
+                </button>
+<!-- Data Map -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">hub</span>
+                    Data Map
+                </button>
+<!-- Logic Ops -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">psychology</span>
+                    Logic Ops
+                </button>
+<!-- Execution -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+                    Execution
+                </button>
+<!-- Returns -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+                    Returns
+                </button>
+<!-- Alpha -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">insights</span>
+                    Alpha
+                </button>
+<!-- T-Stats -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">query_stats</span>
+                    T-Stats
+                </button>
+<!-- Provenance -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">verified_user</span>
+                    Provenance
+                </button>
+<!-- Critic 1 -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">rate_review</span>
+                    Critic 1
+                </button>
+<!-- Critic 2 -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">reviews</span>
+                    Critic 2
+                </button>
+<!-- Stability (ACTIVE) -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter bg-[#161B22] text-[#007AFF] border-l-2 border-[#007AFF] hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">fluorescent</span>
+                    Stability
+                </button>
+<!-- Heatmap -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">grid_view</span>
+                    Heatmap
+                </button>
+<!-- Final Ledger -->
+<button class="flex items-center gap-3 px-4 py-2 w-full text-left font-mono text-[10px] uppercase tracking-tighter text-[#8B949E] hover:text-white hover:bg-[#161B22] Transition-all duration-75">
+<span class="material-symbols-outlined text-[16px]">menu_book</span>
+                    Final Ledger
+                </button>
+</div>
+<div class="p-4 border-t border-[#30363D]">
+<button class="w-full bg-primary-container text-on-primary-container font-label-caps text-label-caps py-2 hover:opacity-90 transition-opacity">
+                    VERIFY PIPELINE
+                </button>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 ml-48 mr-80 p-gutter overflow-y-auto bg-background">
+<header class="mb-gutter flex justify-between items-end border-b border-outline-variant pb-unit">
+<div>
+<h1 class="font-headline-sm text-headline-sm text-on-surface uppercase">Divergence &amp; Robustness Lab</h1>
+<p class="font-data-sm text-data-sm text-on-surface-variant mt-unit">STRESS TESTING PARAMETER SENSITIVITY &amp; CAUSAL INTEGRITY</p>
+</div>
+<div class="flex gap-2">
+<div class="brutalist-border bg-surface-container-low px-2 py-1 flex items-center gap-2">
+<span class="block w-1.5 h-1.5 bg-secondary rounded-none"></span>
+<span class="font-data-sm text-data-sm text-on-surface">LIVE SYNC</span>
+</div>
+</div>
+</header>
+<div class="grid grid-cols-12 gap-gutter">
+<!-- Confidence Gauges (Top Span) -->
+<div class="col-span-12 brutalist-border bg-surface-container-low p-container-padding flex justify-between items-center">
+<div class="font-label-caps text-label-caps text-on-surface-variant w-32">CONFIDENCE GAUGES</div>
+<div class="flex-1 flex gap-8 px-4">
+<div class="flex-1">
+<div class="flex justify-between font-data-sm text-data-sm mb-1">
+<span class="text-on-surface">Data Provenance</span>
+<span class="text-secondary">HIGH</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full flex">
+<div class="h-full bg-secondary w-full"></div>
+</div>
+</div>
+<div class="flex-1">
+<div class="flex justify-between font-data-sm text-data-sm mb-1">
+<span class="text-on-surface">Model Stability</span>
+<span class="text-tertiary">MED</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full flex">
+<div class="h-full bg-tertiary w-2/3 border-r border-surface-container-highest"></div>
+</div>
+</div>
+<div class="flex-1">
+<div class="flex justify-between font-data-sm text-data-sm mb-1">
+<span class="text-on-surface">Out-of-Sample Rep</span>
+<span class="text-error">LOW</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full flex">
+<div class="h-full bg-error w-1/3 border-r border-surface-container-highest"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Claim vs Reality Table -->
+<div class="col-span-7 brutalist-border bg-surface-container flex flex-col h-[320px]">
+<div class="p-container-padding border-b border-outline-variant bg-surface-container-high flex justify-between items-center">
+<h3 class="font-label-caps text-label-caps text-on-surface">CLAIM VS. REALITY (GAP ANALYSIS)</h3>
+<span class="font-data-md text-data-md text-error flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">warning</span>
+                            47bps GAP DETECTED
+                        </span>
+</div>
+<div class="flex-1 overflow-auto">
+<table class="w-full text-left border-collapse">
+<thead class="sticky top-0 bg-surface-container border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">
+<tr>
+<th class="py-2 px-3 font-normal">METRIC</th>
+<th class="py-2 px-3 font-normal text-right">AUTHOR CLAIM</th>
+<th class="py-2 px-3 font-normal text-right">REP ENGINE</th>
+<th class="py-2 px-3 font-normal text-right">DELTA</th>
+</tr>
+</thead>
+<tbody class="font-data-md text-data-md">
+<tr class="bg-surface-container-lowest border-b border-outline-variant">
+<td class="py-2 px-3 text-on-surface">Annualized Ret (Gross)</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">14.20%</td>
+<td class="py-2 px-3 text-right text-on-surface">13.73%</td>
+<td class="py-2 px-3 text-right text-error">-0.47%</td>
+</tr>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<td class="py-2 px-3 text-on-surface">Sharpe Ratio</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">1.85</td>
+<td class="py-2 px-3 text-right text-on-surface">1.62</td>
+<td class="py-2 px-3 text-right text-error">-0.23</td>
+</tr>
+<tr class="bg-surface-container-lowest border-b border-outline-variant">
+<td class="py-2 px-3 text-on-surface">Max Drawdown</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">-11.4%</td>
+<td class="py-2 px-3 text-right text-on-surface">-14.1%</td>
+<td class="py-2 px-3 text-right text-error">-2.7%</td>
+</tr>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<td class="py-2 px-3 text-on-surface">Turnover (Monthly)</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">45.0%</td>
+<td class="py-2 px-3 text-right text-on-surface">48.2%</td>
+<td class="py-2 px-3 text-right text-tertiary">+3.2%</td>
+</tr>
+<tr class="bg-surface-container-lowest">
+<td class="py-2 px-3 text-on-surface">Beta to S&amp;P 500</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">0.12</td>
+<td class="py-2 px-3 text-right text-on-surface">0.14</td>
+<td class="py-2 px-3 text-right text-on-surface-variant">+0.02</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Robustness Matrix Heatmap -->
+<div class="col-span-5 brutalist-border bg-surface-container flex flex-col h-[320px]">
+<div class="p-container-padding border-b border-outline-variant bg-surface-container-high flex justify-between items-center">
+<h3 class="font-label-caps text-label-caps text-on-surface">ROBUSTNESS MATRIX (SHARPE)</h3>
+<span class="font-data-sm text-data-sm text-on-surface-variant">LAG VS HOLDING</span>
+</div>
+<div class="flex-1 p-container-padding flex flex-col items-center justify-center relative">
+<!-- Y-Axis Label -->
+<div class="absolute left-0 top-1/2 -translate-y-1/2 -rotate-90 font-label-caps text-label-caps text-on-surface-variant origin-center w-8 text-center">LAG</div>
+<div class="w-full pl-6 pr-2 h-full flex flex-col gap-1">
+<!-- Matrix Header -->
+<div class="flex w-full gap-1 font-data-sm text-data-sm text-on-surface-variant text-center mb-1">
+<div class="w-8"></div>
+<div class="flex-1">1M</div>
+<div class="flex-1">3M</div>
+<div class="flex-1">6M</div>
+</div>
+<!-- Row 1 -->
+<div class="flex w-full gap-1 flex-1">
+<div class="w-8 flex items-center justify-center font-data-sm text-data-sm text-on-surface-variant">T+1</div>
+<div class="flex-1 bg-surface-container-highest border border-outline flex items-center justify-center font-data-md text-data-md text-on-surface">1.82</div>
+<div class="flex-1 bg-[#1A2E4C] border border-primary text-primary flex items-center justify-center font-data-md text-data-md relative">
+                                    1.62
+                                    <span class="absolute top-1 right-1 w-1.5 h-1.5 bg-primary rounded-none"></span>
+</div>
+<div class="flex-1 bg-surface-container-highest border border-outline flex items-center justify-center font-data-md text-data-md text-on-surface">1.45</div>
+</div>
+<!-- Row 2 -->
+<div class="flex w-full gap-1 flex-1">
+<div class="w-8 flex items-center justify-center font-data-sm text-data-sm text-on-surface-variant">T+2</div>
+<div class="flex-1 bg-surface-container-highest border border-outline flex items-center justify-center font-data-md text-data-md text-on-surface">1.55</div>
+<div class="flex-1 bg-surface-container-highest border border-outline flex items-center justify-center font-data-md text-data-md text-on-surface">1.40</div>
+<div class="flex-1 bg-surface-container-high border border-outline-variant flex items-center justify-center font-data-md text-data-md text-on-surface-variant">1.10</div>
+</div>
+<!-- Row 3 -->
+<div class="flex w-full gap-1 flex-1">
+<div class="w-8 flex items-center justify-center font-data-sm text-data-sm text-on-surface-variant">T+5</div>
+<div class="flex-1 bg-surface-container-high border border-outline-variant flex items-center justify-center font-data-md text-data-md text-on-surface-variant">0.95</div>
+<div class="flex-1 bg-surface-container-high border border-outline-variant flex items-center justify-center font-data-md text-data-md text-on-surface-variant">0.85</div>
+<div class="flex-1 bg-surface-container-low border border-outline-variant flex items-center justify-center font-data-md text-data-md text-on-surface-variant opacity-50">0.40</div>
+</div>
+</div>
+<!-- X-Axis Label -->
+<div class="w-full text-center font-label-caps text-label-caps text-on-surface-variant mt-2 pl-6">HOLDING PERIOD</div>
+</div>
+</div>
+<!-- Causal Path Diagram -->
+<div class="col-span-12 brutalist-border bg-surface-container flex flex-col h-[280px]">
+<div class="p-container-padding border-b border-outline-variant bg-surface-container-high flex justify-between items-center">
+<h3 class="font-label-caps text-label-caps text-on-surface">CAUSAL PATH DIAGRAM (D2 EXPERIMENTS)</h3>
+<div class="flex gap-2">
+<span class="brutalist-border bg-surface px-2 py-0.5 font-data-sm text-data-sm text-on-surface">NODE: SIGNAL</span>
+<span class="brutalist-border bg-surface px-2 py-0.5 font-data-sm text-data-sm text-on-surface">EDGE: INFLUENCE</span>
+</div>
+</div>
+<div class="flex-1 relative p-8 flex items-center justify-between overflow-hidden">
+<!-- Node 1: Raw Data -->
+<div class="brutalist-border bg-surface-container-lowest p-3 w-40 z-10 flex flex-col items-center">
+<span class="material-symbols-outlined text-[#8B949E] text-[20px] mb-1">database</span>
+<span class="font-label-caps text-label-caps text-on-surface text-center w-full border-b border-outline-variant pb-1 mb-1">RAW INGEST</span>
+<span class="font-data-sm text-data-sm text-on-surface-variant text-center">N=4,521 Series</span>
+</div>
+<!-- Edge 1 -->
+<div class="flex-1 h-px bg-outline-variant relative -mx-2 z-0">
+<div class="absolute right-0 top-1/2 -translate-y-1/2 border-l-4 border-l-outline-variant border-y-4 border-y-transparent"></div>
+<span class="absolute top-[-20px] left-1/2 -translate-x-1/2 font-data-sm text-data-sm text-on-surface-variant bg-surface-container px-1">Cleaning</span>
+</div>
+<!-- Node 2: D2 Feature -->
+<div class="brutalist-border bg-surface-container-low border-primary p-3 w-40 z-10 flex flex-col items-center shadow-[0_0_15px_rgba(0,122,255,0.15)]">
+<span class="material-symbols-outlined text-primary text-[20px] mb-1">memory</span>
+<span class="font-label-caps text-label-caps text-primary text-center w-full border-b border-primary pb-1 mb-1">D2 FEATURE</span>
+<span class="font-data-sm text-data-sm text-on-surface text-center">Var(X) isolated</span>
+</div>
+<!-- Edges splitting -->
+<div class="w-16 h-24 relative z-0 flex flex-col justify-between py-6">
+<!-- Top branch -->
+<div class="w-full h-px bg-outline-variant relative">
+<div class="absolute left-0 top-0 w-px h-[40px] bg-outline-variant -mt-[40px]"></div>
+<div class="absolute right-0 top-1/2 -translate-y-1/2 border-l-4 border-l-outline-variant border-y-4 border-y-transparent"></div>
+</div>
+<!-- Bottom branch -->
+<div class="w-full h-px bg-outline-variant relative">
+<div class="absolute left-0 bottom-0 w-px h-[40px] bg-outline-variant -mb-[40px]"></div>
+<div class="absolute right-0 top-1/2 -translate-y-1/2 border-l-4 border-l-outline-variant border-y-4 border-y-transparent"></div>
+</div>
+</div>
+<!-- Target Nodes -->
+<div class="flex flex-col gap-6 z-10 w-40">
+<!-- Target 1: Claim -->
+<div class="brutalist-border bg-surface-container-lowest p-3 flex flex-col items-center opacity-70">
+<span class="font-label-caps text-label-caps text-on-surface-variant text-center w-full border-b border-outline-variant pb-1 mb-1">AUTHOR CLAIM</span>
+<span class="font-data-sm text-data-sm text-on-surface-variant text-center">R² = 0.15</span>
+</div>
+<!-- Target 2: Reality -->
+<div class="brutalist-border bg-surface-container-lowest p-3 border-error flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-error text-center w-full border-b border-error pb-1 mb-1">REALITY (REP)</span>
+<span class="font-data-sm text-data-sm text-on-surface text-center">R² = 0.04</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- NavigationDrawer -->
+<aside class="bg-[#161B22] docked vertical right-0 h-full border-l border-[#30363D] w-80 fixed right-0 top-12 bottom-0 flex flex-col z-50 shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">
+<div class="p-4 border-b border-[#30363D]">
+<h2 class="font-['Inter'] text-xs font-semibold text-white mb-1">PROVENANCE ENGINE</h2>
+<div class="text-[#8B949E] font-mono text-[10px] tracking-tighter">MULTI-LAYER DETAIL</div>
+</div>
+<div class="flex-1 overflow-y-auto flex flex-col">
+<!-- Verdict -->
+<button class="flex items-center gap-3 px-4 py-3 w-full text-left font-['Inter'] text-xs font-semibold text-[#8B949E] border-b border-[#30363D] hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px]">gavel</span>
+                    Verdict
+                </button>
+<!-- Logic -->
+<button class="flex items-center gap-3 px-4 py-3 w-full text-left font-['Inter'] text-xs font-semibold text-[#8B949E] border-b border-[#30363D] hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px]">psychology</span>
+                    Logic
+                </button>
+<!-- Evidence (ACTIVE based on context) -->
+<button class="flex items-center gap-3 px-4 py-3 w-full text-left font-['Inter'] text-xs font-semibold text-white bg-[#21262D] border-b border-[#30363D] hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px] text-[#007AFF]">database</span>
+                    Evidence
+                </button>
+<!-- Execution Code -->
+<button class="flex items-center gap-3 px-4 py-3 w-full text-left font-['Inter'] text-xs font-semibold text-[#8B949E] border-b border-[#30363D] hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px]">code</span>
+                    Execution Code
+                </button>
+</div>
+</aside>
+</div>
+</body></html>
