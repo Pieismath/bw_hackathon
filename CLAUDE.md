@@ -108,6 +108,15 @@ All endpoints return JSON. Handlers catch `BaseException`, log the traceback, an
 - Never use `--no-verify`, `--force`, or `--hard` unless the user explicitly asks.
 - Never edit `.env` or anything that looks like secrets.
 
+## Planned Phase 3+ work
+
+Four features are on deck. When you pick one up, follow the same spec-first discipline as Phase 1/2 — new cross-component payloads go in `src/specs/`, new agents get a `.md` prompt under `src/agents/prompts/`, and the MVP UI gets a matching tab (don't silently ignore new backend fields).
+
+- **Tradeability Scorecard** — derive turnover / capacity / rebalance frequency / gross-net spread from `BacktestResult`, then an LLM heuristic (Sonnet) emits `{verdict: tradeable|borderline|not_tradeable, reasons: [...]}`. Spec lives in `src/specs/tradeability.py`; agent in `src/agents/analysis/tradeability_scorer.py`. New tab on the frontend.
+- **Robustness / decay stress test** — extend `run_backtest` (or wrap it) to sweep `signal_lag_days ∈ {1,2,5,10}` and regime windows (pre-2008, 2008, 2010s, 2020–2022). Return a matrix keyed by (lag, regime). Render as a heatmap in a new Robustness tab. No new LLM call — pure engine work.
+- **Paper-vs-replication diff** — extend A1 to extract `PaperReportedMetrics { sharpe, mean_return, t_stat, ... }` with verbatim `SupportingQuote`s (A2 verifies them same as any other quote). Render a side-by-side diff table on the Backtest tab. This needs a prompt change + spec addition; keep the A1 prompt change small and add a new schema rather than bloating `ReplicationSpec`.
+- **News contextualization (guarded)** — optional tab that pulls headlines around drawdown windows. MUST include an A2-style verifier: every headline requires a retrievable URL and a publication date inside the drawdown window, or it's dropped. Gate behind an env flag (e.g. `ENABLE_NEWS_CONTEXT=1`); default off. This is the highest hallucination-risk feature in the roadmap — do not ship without the verifier.
+
 ## Update policy for this file
 
 When you change anything that affects how someone runs, extends, or reasons about this repo, update both:

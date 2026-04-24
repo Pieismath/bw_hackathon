@@ -107,3 +107,12 @@ The `app/` package wraps the Phase 1/2 surface area in a single-page dark-mode U
 Endpoints: `/api/demo` (no deps), `/api/papers` (GET/POST), `/api/extract`, `/api/critique`, `/api/backtest`. Error responses are structured JSON with an actionable `hint` field; the frontend surfaces the raw body if a response isn't JSON.
 
 See `DESIGN_NOTES.md` for non-obvious design decisions and bug postmortems, and `CLAUDE.md` for agent instructions on how to extend this repo.
+
+## Roadmap (Phase 3+)
+
+Planned features on top of the Phase 1+2 foundation:
+
+- **Tradeability Scorecard** — compute turnover, capacity, rebalance frequency, and gross/net spread from `BacktestResult`, then run an LLM heuristic (Sonnet) that emits a CIO-style verdict — `tradeable` / `borderline` / `not tradeable` — with reasons tied to the underlying metrics.
+- **Robustness / decay stress test** — re-run `run_backtest` with the signal lagged 1/2/5/10 days and sliced by regime (pre-2008, 2008 crisis, 2010s, 2020–2022). Render a heatmap in a new Robustness tab; decay speed is a direct proxy for alpha fragility.
+- **Paper-vs-replication diff** — have A1 extract the paper's self-reported Sharpe / mean return / t-stat (with supporting quotes) into a new `PaperReportedMetrics` spec, then render a side-by-side "paper claims X, we got Y, delta = Δ" table on the Backtest tab. This is the single most legible artifact for a reviewer.
+- **News contextualization (guarded)** — optional tab that pulls headlines around the largest drawdown windows. Needs an A2-style verifier (every headline must cite a retrievable URL + publication date inside the drawdown window) because a raw LLM will happily invent plausible stories. Gated behind an env flag; off by default.

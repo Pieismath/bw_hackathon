@@ -62,3 +62,10 @@ Good call on only picking trading strategy paper
 ### Agent Pipeline
 - Building toward sample paper (try out of sample)
 - Where do the agents struggle?
+
+## Planned Features (Phase 3+)
+
+- **Tradeability Scorecard** — turnover, capacity, rebalance frequency, gross/net spread. LLM heuristic on top that gives a CIO-style "tradeable / borderline / not tradeable" verdict with reasons.
+- **Robustness / decay stress test** — re-run the backtest with signal lagged 1/2/5/10 days, slice by regime (pre-2008, 2008 crisis, 2010s, 2020-2022). Render as a small heatmap.
+- **Paper-vs-replication diff** — extract the paper's reported Sharpe/returns in A1, then show "paper claims X, we got Y" side-by-side. The single most convincing artifact for a judge.
+- **News contextualization (guarded)** — optional tab that pulls headlines around drawdown periods; requires a verifier like A2 so the model can't fabricate stories.
