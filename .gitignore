@@ -2,8 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
-data/cache/
-data/papers/*.pdf
+data/
 outputs/
 .DS_Store
 *.egg-info/

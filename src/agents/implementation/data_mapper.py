@@ -1,6 +1,6 @@
 """B1 — Data Mapper.
 
-Opus 4.7 reads a verified ReplicationSpec + our catalog of available data
+Sonnet 4.6 reads a verified ReplicationSpec + our catalog of available data
 sources, and produces a DataMapping: one FieldMapping per spec field that
 needs data, naming which (source, method) feeds it and at what fidelity.
 """
@@ -13,7 +13,7 @@ from src.agents.implementation.catalog import CATALOG, catalog_as_prompt_text
 from src.specs import DataMapping, ReplicationSpec
 from src.utils.llm import call_claude, load_prompt
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-sonnet-4-6"
 PROMPT_NAME = "data_mapper"
 
 

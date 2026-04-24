@@ -1,6 +1,6 @@
 """A3 — Adversarial Reviewer.
 
-Opus 4.7 reads the paper + A1's extraction + A2's verification report,
+Sonnet 4.6 reads the paper + A1's extraction + A2's verification report,
 then emits exactly three structured criticisms (missed / oversimplified /
 alternative_interpretation). The orchestrator can fold high-severity
 criticisms into the spec's `ambiguities` list so downstream diagnosis
@@ -22,7 +22,7 @@ from src.specs import (
 )
 from src.utils.llm import call_claude, load_prompt
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-sonnet-4-6"
 PROMPT_NAME = "adversarial_reviewer"
 
 

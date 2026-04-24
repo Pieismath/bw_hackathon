@@ -19,7 +19,7 @@ from src.pdf.parser import ParsedPDF
 from src.specs import ReplicationSpec
 from src.utils.llm import call_claude, load_prompt
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-sonnet-4-6"
 PROMPT_NAME = "methodology_extractor"
 
 

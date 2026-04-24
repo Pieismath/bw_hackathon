@@ -80,15 +80,16 @@ function setStatus(text, color = 'gray') {
 }
 function setVerdict(report) {
   const el = $('#verdict-badge');
-  if (!report) { el.textContent = 'VERDICT: —'; return; }
-  const conf = report.overall_confidence.toUpperCase();
-  el.textContent = `VERDICT: ${conf}`;
-  el.style.color = conf === 'HIGH' ? 'var(--secondary)' : conf === 'MEDIUM' ? 'var(--tertiary)' : 'var(--error)';
+  if (!report) { el.textContent = 'Verdict: —'; el.style.color = ''; return; }
+  const conf = report.overall_confidence;
+  const label = conf.charAt(0).toUpperCase() + conf.slice(1);
+  el.textContent = `Verdict: ${label}`;
+  el.style.color = conf === 'high' ? 'var(--success)' : conf === 'medium' ? 'var(--warning)' : 'var(--danger)';
 }
 
 $('#demo-btn').addEventListener('click', async () => {
   log('SYS', 'Loading demo bundle from /api/demo…', 'sys');
-  setStatus('LOADING · demo bundle', 'amber');
+  setStatus('Loading demo bundle…', 'amber');
   try {
     const resp = await fetch('/api/demo');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -97,7 +98,7 @@ $('#demo-btn').addEventListener('click', async () => {
     log('SYS', `Demo bundle loaded (paper_id=${bundle.paper_id}).`, 'sys');
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
-    setStatus('ERROR', 'red');
+    setStatus('Error', 'red');
   }
 });
 
@@ -109,11 +110,11 @@ $('#reset-btn').addEventListener('click', () => {
   $('#backtest-body').innerHTML = '';
   $('#provenance-body').innerHTML = '';
   resetKPIs();
-  $('#paper-title').textContent = 'NO PAPER';
-  $('#ingest-chip').innerHTML = '<span class="dot amber"></span>AWAITING INGESTION';
-  $('#metric-chip').innerHTML = '<span class="dot gray"></span>NO RUN';
+  $('#paper-title').textContent = 'No paper';
+  $('#ingest-chip').innerHTML = '<span class="dot amber"></span>Awaiting upload';
+  $('#metric-chip').innerHTML = '<span class="dot gray"></span>No run';
   $('#log').innerHTML = '';
-  setStatus('IDLE · no paper loaded', 'gray');
+  setStatus('Idle — no paper loaded', 'gray');
   setVerdict(null);
   showTab('overview');
 });
@@ -139,7 +140,7 @@ async function uploadPaper(file) {
     return;
   }
   log('SYS', `Uploading ${file.name} (${(file.size / 1024).toFixed(1)} KB)…`, 'sys');
-  setStatus('UPLOADING · PDF', 'amber');
+  setStatus('Uploading PDF…', 'amber');
   const form = new FormData();
   form.append('file', file);
   try {
@@ -147,31 +148,46 @@ async function uploadPaper(file) {
     if (!up.ok) throw new Error(`upload HTTP ${up.status}`);
     const paper = await up.json();
     log('A1', `Paper ${paper.paper_id} stored. Kicking off extraction…`, 'a1');
-    $('#paper-title').textContent = paper.paper_id.toUpperCase();
-    $('#ingest-chip').innerHTML = '<span class="dot green pulse"></span>INGESTED';
+    $('#paper-title').textContent = paper.paper_id;
+    $('#ingest-chip').innerHTML = '<span class="dot green pulse"></span>Ingested';
     await runExtraction(paper.paper_id);
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
-    setStatus('ERROR', 'red');
+    setStatus('Error', 'red');
   }
   refreshPapers();
 }
 
+async function safeJson(resp) {
+  // Server may return HTML ("Internal Server Error") when something escapes
+  // the handler. Read as text, try to parse; otherwise surface the raw body.
+  const text = await resp.text();
+  try {
+    return { ok: true, body: JSON.parse(text) };
+  } catch {
+    return { ok: false, body: { error: text.slice(0, 400) || `HTTP ${resp.status}` } };
+  }
+}
+
 async function runExtraction(paperId) {
-  setStatus('RUNNING · A1 + A2', 'amber');
+  setStatus('Running A1 + A2 (may take 30–90s on first run)…', 'amber');
+  log('A1', 'Calling /api/extract (Opus + Haiku, cached on disk)…', 'a1');
   try {
     const r = await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paper_id: paperId }),
     });
-    const body = await r.json();
-    if (!r.ok) {
-      log('A1', `FAILED: ${body.error || 'unknown'}`, 'a1');
-      log('SYS', body.hint || 'Check server logs.', 'sys');
-      setStatus('FAILED · extraction', 'red');
+    const parsed = await safeJson(r);
+    if (!r.ok || !parsed.ok) {
+      const msg = parsed.body.error || `HTTP ${r.status}`;
+      const hint = parsed.body.hint || 'Is ANTHROPIC_API_KEY set? Check server logs for the full traceback.';
+      log('A1', `FAILED: ${msg}`, 'a1');
+      log('SYS', hint, 'sys');
+      setStatus('Extraction failed', 'red');
       return;
     }
+    const body = parsed.body;
     log('A1', `Extracted spec. Verification → ${body.verified_spec.report.overall_confidence}.`, 'a1');
     log('A2', `${body.verified_spec.report.n_checks} quote checks; ${body.verified_spec.report.n_failed_high} high-severity failures.`, 'a2');
     applyBundle({
@@ -184,7 +200,7 @@ async function runExtraction(paperId) {
     });
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
-    setStatus('ERROR', 'red');
+    setStatus('Error', 'red');
   }
 }
 
@@ -202,7 +218,7 @@ async function refreshPapers() {
         el('div', { class: 'actions' }, [
           el('button', {
             onclick: () => runExtraction(p.paper_id),
-          }, 'RUN'),
+          }, 'Run'),
         ]),
       ]);
       wrap.appendChild(row);
@@ -216,7 +232,7 @@ async function refreshPapers() {
 
 function applyBundle(bundle) {
   state.bundle = bundle;
-  $('#paper-title').textContent = (bundle.paper_title || bundle.paper_id || 'PAPER').toUpperCase();
+  $('#paper-title').textContent = bundle.paper_title || bundle.paper_id || 'Paper';
   if (bundle.verified_spec) setVerdict(bundle.verified_spec.report);
   renderSpec(bundle.verified_spec);
   renderVerification(bundle.verified_spec);
@@ -224,7 +240,7 @@ function applyBundle(bundle) {
   renderBacktest(bundle.backtest, bundle.paper_claim);
   renderProvenance(bundle.backtest);
   renderKPIs(bundle.backtest);
-  setStatus('READY · bundle loaded', 'green');
+  setStatus('Ready — bundle loaded', 'green');
 }
 
 function resetKPIs() {
@@ -243,7 +259,7 @@ function renderKPIs(bt) {
   dd.className = 'val neg';
   $('#kpi-n').textContent = bt.n_periods;
   $('#kpi-hit').textContent = fmtPct(bt.hit_rate, 1);
-  $('#metric-chip').innerHTML = '<span class="dot green"></span>RUN COMPLETE';
+  $('#metric-chip').innerHTML = '<span class="dot green"></span>Run complete';
 }
 
 // ---------- Spec tab ----------
@@ -304,7 +320,7 @@ function renderSpec(verified) {
   // Ambiguities
   if (spec.ambiguities && spec.ambiguities.length) {
     const head = el('div', { class: 'spec-section-head' }, [
-      el('h3', {}, `AMBIGUITIES (${spec.ambiguities.length})`),
+      el('h3', {}, `Ambiguities (${spec.ambiguities.length})`),
     ]);
     const list = el('div', { class: 'spec-section' });
     list.appendChild(head);
@@ -327,7 +343,7 @@ function renderSpec(verified) {
         el('td', {}, f.parameter),
         el('td', {}, f.default_chosen),
         el('td', {}, (f.alternatives || []).join(', ') || '—'),
-        el('td', {}, [el('span', { class: `pill ${sevClass}` }, f.sensitivity_priority.toUpperCase())]),
+        el('td', {}, [el('span', { class: `pill ${sevClass}` }, capitalize(f.sensitivity_priority))]),
         el('td', {}, f.reason),
       ]));
     });
@@ -340,7 +356,7 @@ function renderSpec(verified) {
 function specBlock(title, fields, supportingQuote) {
   const section = el('div', { class: 'spec-section' });
   section.appendChild(el('div', { class: 'spec-section-head' }, [
-    el('h3', {}, title.toUpperCase()),
+    el('h3', {}, title),
   ]));
   const dl = el('dl', { class: 'spec-section-body' });
   Object.entries(fields).forEach(([k, v]) => {
@@ -350,11 +366,16 @@ function specBlock(title, fields, supportingQuote) {
   section.appendChild(dl);
   if (supportingQuote) {
     section.appendChild(el('div', { class: 'quote' }, [
-      el('span', { class: 'meta' }, `SUPPORTING QUOTE · page ${supportingQuote.page} · confidence ${fmtNum(supportingQuote.match_confidence, 2)} · ${supportingQuote.verified ? 'VERIFIED' : 'UNVERIFIED'}`),
+      el('span', { class: 'meta' }, `Supporting quote · page ${supportingQuote.page} · confidence ${fmtNum(supportingQuote.match_confidence, 2)} · ${supportingQuote.verified ? 'verified' : 'unverified'}`),
       document.createTextNode('“' + supportingQuote.text + '”'),
     ]));
   }
   return section;
+}
+
+function capitalize(s) {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ---------- Verification tab ----------
@@ -369,8 +390,8 @@ function renderVerification(verified) {
   const r = verified.report;
   const summary = el('div', { class: 'spec-section' });
   summary.appendChild(el('div', { class: 'spec-section-head' }, [
-    el('h3', {}, 'A2 SUMMARY'),
-    el('span', { class: 'pill ' + (r.overall_confidence === 'high' ? 'ok' : r.overall_confidence === 'medium' ? 'warn' : 'fail') }, r.overall_confidence.toUpperCase()),
+    el('h3', {}, 'A2 summary'),
+    el('span', { class: 'pill ' + (r.overall_confidence === 'high' ? 'ok' : r.overall_confidence === 'medium' ? 'warn' : 'fail') }, capitalize(r.overall_confidence)),
   ]));
   const dl = el('dl', { class: 'spec-section-body' });
   [
@@ -390,7 +411,7 @@ function renderVerification(verified) {
   // Checks table
   const block = el('div', { class: 'spec-section' });
   block.appendChild(el('div', { class: 'spec-section-head' }, [
-    el('h3', {}, 'QUOTE CHECKS'),
+    el('h3', {}, 'Quote checks'),
   ]));
   const table = el('table', { class: 'data' });
   table.appendChild(el('thead', {}, [
@@ -410,12 +431,12 @@ function renderVerification(verified) {
     const supportClass = c.support_check ? (c.support_check.supports === 'yes' ? 'ok' : c.support_check.supports === 'partial' ? 'warn' : 'fail') : 'info';
     tbody.appendChild(el('tr', {}, [
       el('td', {}, c.field_path),
-      el('td', {}, [el('span', { class: `pill ${sevClass}` }, c.severity.toUpperCase())]),
+      el('td', {}, [el('span', { class: `pill ${sevClass}` }, capitalize(c.severity))]),
       el('td', {}, c.verification_status),
       el('td', { class: 'num' }, c.verified_page ?? '—'),
       el('td', { class: 'num' }, fmtNum(c.verification_confidence, 2)),
-      el('td', {}, c.support_check ? [el('span', { class: `pill ${supportClass}` }, c.support_check.supports.toUpperCase())] : '—'),
-      el('td', {}, [el('span', { class: 'pill ' + (c.failed ? 'fail' : 'ok') }, c.failed ? 'FAIL' : 'PASS')]),
+      el('td', {}, c.support_check ? [el('span', { class: `pill ${supportClass}` }, capitalize(c.support_check.supports))] : '—'),
+      el('td', {}, [el('span', { class: 'pill ' + (c.failed ? 'fail' : 'ok') }, c.failed ? 'Fail' : 'Pass')]),
     ]));
   });
   table.appendChild(tbody);
@@ -427,14 +448,14 @@ function renderVerification(verified) {
     if (!c.support_check) return;
     const card = el('div', { class: 'spec-section' });
     card.appendChild(el('div', { class: 'spec-section-head' }, [
-      el('h3', {}, `${c.field_path.toUpperCase()} · ${c.support_check.supports.toUpperCase()}`),
+      el('h3', {}, `${c.field_path} · ${capitalize(c.support_check.supports)}`),
     ]));
     card.appendChild(el('div', { class: 'quote' }, [
-      el('span', { class: 'meta' }, `HAIKU JUDGMENT`),
+      el('span', { class: 'meta' }, `Haiku judgment`),
       document.createTextNode(c.support_check.reason),
     ]));
     card.appendChild(el('div', { class: 'quote' }, [
-      el('span', { class: 'meta' }, `QUOTE · page ${c.quote.page}`),
+      el('span', { class: 'meta' }, `Quote · page ${c.quote.page}`),
       document.createTextNode('“' + c.quote.text + '”'),
     ]));
     root.appendChild(card);
@@ -453,16 +474,16 @@ function renderCritique(critique) {
   critique.criticisms.forEach((c, i) => {
     const card = el('div', { class: `critique-card sev-${c.severity}` }, [
       el('div', { class: 'head' }, [
-        el('span', { class: `pill ${c.severity === 'high' ? 'fail' : c.severity === 'medium' ? 'warn' : 'info'}` }, c.severity.toUpperCase()),
-        el('span', { class: 'pill info' }, c.category.toUpperCase().replace('_', ' ')),
-        el('h4', {}, `CRITICISM ${i + 1}`),
+        el('span', { class: `pill ${c.severity === 'high' ? 'fail' : c.severity === 'medium' ? 'warn' : 'info'}` }, capitalize(c.severity)),
+        el('span', { class: 'pill info' }, c.category.replace(/_/g, ' ')),
+        el('h4', {}, `Criticism ${i + 1}`),
       ]),
       el('p', { class: 'desc' }, c.description),
       el('div', { class: 'remedy' }, c.proposed_remediation),
     ]);
     if (c.evidence_quote) {
       card.appendChild(el('div', { class: 'quote' }, [
-        el('span', { class: 'meta' }, `EVIDENCE · page ${c.evidence_quote.page}`),
+        el('span', { class: 'meta' }, `Evidence · page ${c.evidence_quote.page}`),
         document.createTextNode('“' + c.evidence_quote.text + '”'),
       ]));
     }
@@ -483,7 +504,7 @@ function renderBacktest(bt, paperClaim) {
   // Data quality flags
   if (bt.data_quality_flags && bt.data_quality_flags.length) {
     const banner = el('div', { class: 'flag-banner' });
-    banner.appendChild(el('div', { class: 'head' }, `DATA QUALITY FLAGS (${bt.data_quality_flags.length})`));
+    banner.appendChild(el('div', { class: 'head' }, `Data quality flags (${bt.data_quality_flags.length})`));
     bt.data_quality_flags.forEach((f) => banner.appendChild(el('div', {}, `• ${f}`)));
     root.appendChild(banner);
   }
@@ -491,7 +512,7 @@ function renderBacktest(bt, paperClaim) {
   // Comparison
   if (paperClaim) {
     const block = el('div', { class: 'spec-section' });
-    block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'PAPER CLAIM vs REPLICATION')]));
+    block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper claim vs. replication')]));
     const gap = bt.mean_return - paperClaim.monthly_return;
     const gapPct = paperClaim.monthly_return !== 0 ? (bt.mean_return / paperClaim.monthly_return - 1) * 100 : 0;
     const t = el('table', { class: 'data' });
@@ -530,7 +551,7 @@ function renderBacktest(bt, paperClaim) {
 
   // Metrics summary
   const m = el('div', { class: 'spec-section' });
-  m.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'ENGINE METRICS')]));
+  m.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Engine metrics')]));
   const dl = el('dl', { class: 'spec-section-body' });
   [
     ['spec_hash', bt.spec_hash],
@@ -556,7 +577,7 @@ function renderBacktest(bt, paperClaim) {
 
   // Equity curve
   const chart = el('div', { class: 'spec-section' });
-  chart.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'CUMULATIVE RETURN (LONG-SHORT)')]));
+  chart.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Cumulative return (long–short)')]));
   const wrap = el('div', { class: 'chart-wrap' });
   wrap.appendChild(buildEquitySVG(bt.returns));
   chart.appendChild(wrap);
@@ -565,7 +586,7 @@ function renderBacktest(bt, paperClaim) {
   // Recent returns table (last 24)
   if (bt.returns && bt.returns.length) {
     const tbl = el('div', { class: 'spec-section' });
-    tbl.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, `RETURN OBSERVATIONS · LAST 24 OF ${bt.returns.length}`)]));
+    tbl.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, `Return observations · last 24 of ${bt.returns.length}`)]));
     const t = el('table', { class: 'data' });
     t.appendChild(el('thead', {}, [
       el('tr', {}, [
@@ -680,7 +701,7 @@ function renderProvenance(bt) {
   // Our demo stops at 2 levels, but real runs chain deeper.
   const engine = bt.provenance;
   const engineNode = el('div', { class: 'prov-node synthesized' }, [
-    el('div', { class: 'tier' }, `LEVEL 2 · ${engine.source_tier.toUpperCase()}`),
+    el('div', { class: 'tier' }, `Level 2 · ${capitalize(engine.source_tier)}`),
     el('div', { class: 'source' }, engine.source_id),
     el('div', { class: 'note' }, [
       `record_id: ${engine.record_id}`,
@@ -691,7 +712,7 @@ function renderProvenance(bt) {
   ]);
   // Parent we don't have the full body for; derive from flags.
   const dataNode = el('div', { class: 'prov-node' }, [
-    el('div', { class: 'tier' }, `LEVEL 1 · PRIMARY`),
+    el('div', { class: 'tier' }, `Level 1 · Primary`),
     el('div', { class: 'source' }, 'defeatbeta_yahoo (derived parent)'),
     el('div', { class: 'note' }, [
       `parent_ids: ${(engine.parent_ids || []).join(', ') || '—'}`,
@@ -714,5 +735,5 @@ function emptyState(icon, msg) {
 // ---------- boot ----------
 
 refreshPapers();
-log('SYS', 'UI ready. Click LOAD DEMO or drop a PDF.', 'sys');
-setStatus('IDLE · no paper loaded', 'gray');
+log('SYS', 'UI ready. Click Load demo or drop a PDF.', 'sys');
+setStatus('Idle — no paper loaded', 'gray');

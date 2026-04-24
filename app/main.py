@@ -123,13 +123,21 @@ def extract(body: PaperIdBody):
             "verified_spec": verified.model_dump(mode="json"),
             "n_pages": pdf.n_pages,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
+    except HTTPException as he:
+        return JSONResponse(
+            status_code=he.status_code,
+            content={"error": he.detail, "hint": "Upload the PDF again or pick an existing paper_id."},
+        )
+    except BaseException as e:
         traceback.print_exc()
+        tb = traceback.format_exc().splitlines()[-1]
         return JSONResponse(
             status_code=500,
-            content={"error": str(e), "hint": "Likely missing ANTHROPIC_API_KEY or PDF parse failure."},
+            content={
+                "error": f"{type(e).__name__}: {e}",
+                "traceback_tail": tb,
+                "hint": "Likely missing ANTHROPIC_API_KEY, network error, or PDF parse failure. Check server console.",
+            },
         )
 
 
@@ -147,13 +155,21 @@ def critique(body: PaperIdBody):
             "paper_id": body.paper_id,
             "critique": critique_obj.model_dump(mode="json"),
         }
-    except HTTPException:
-        raise
-    except Exception as e:
+    except HTTPException as he:
+        return JSONResponse(
+            status_code=he.status_code,
+            content={"error": he.detail, "hint": "Upload the PDF again or pick an existing paper_id."},
+        )
+    except BaseException as e:
         traceback.print_exc()
+        tb = traceback.format_exc().splitlines()[-1]
         return JSONResponse(
             status_code=500,
-            content={"error": str(e), "hint": "Likely missing ANTHROPIC_API_KEY."},
+            content={
+                "error": f"{type(e).__name__}: {e}",
+                "traceback_tail": tb,
+                "hint": "Likely missing ANTHROPIC_API_KEY.",
+            },
         )
 
 

@@ -26,7 +26,7 @@ class ProvenanceRecord(BaseModel):
     """One link in the provenance chain.
 
     A record can describe a data fetch (source_id = "defeatbeta_yahoo"), an
-    agent output (source_id = "claude-opus-4-7:methodology_extractor"), or
+    agent output (source_id = "claude-sonnet-4-6:methodology_extractor"), or
     a derived computation (source_id = "engine:backtest"). Chain records via
     parent_ids to preserve full lineage.
     """

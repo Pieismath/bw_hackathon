@@ -4,16 +4,27 @@ Multi-agent system that takes a quantitative finance research paper plus data an
 
 ## Status
 
-Phase 1 complete: structured specs, point-in-time data store, canonical backtest engine, and external validation via Ken French's published MOM factor.
+**Phase 1 + Phase 2 complete.** Phase 1 delivers the canonical backtest engine, point-in-time data store, and structured specs. Phase 2 adds PDF parsing and the A1 (methodology extractor) + A2 (quote verifier) + A3 (adversarial reviewer) agent layer. A FastAPI + SPA MVP at `app/` renders every Phase 1/2 artifact in a dark-mode research-lab UI.
 
-## Running the repo
-
-Environment is pre-provisioned. Use `.venv/bin/python` for everything — a shell alias would otherwise route bare `python` to an unrelated interpreter.
+## Quick start
 
 ```bash
-.venv/bin/python -m pytest tests/ -q                      # 85 tests, ~2 min
-.venv/bin/python -u scripts/phase1_gate.py                # engine validation
+# 1. Install + activate venv (setup.sh handles this), then:
+.venv/bin/python -m pytest tests/ -q                     # 85 tests, ~2 min
+.venv/bin/python -u scripts/phase1_gate.py               # engine validation
+
+# 2. MVP web UI:
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000 → click LOAD DEMO (no API key required)
 ```
+
+`LOAD DEMO` renders a fully schema-valid Jegadeesh-Titman 1993 bundle (spec, A2 report, A3 critique, 312 monthly backtest obs, provenance). To run the real pipeline on an uploaded PDF you need `ANTHROPIC_API_KEY` in `.env`; for `/api/backtest` you also need the defeatbeta parquet cache at `data/cache/hf_datasets/`.
+
+## Models
+
+All three extraction agents run on **Sonnet 4.6** (`claude-sonnet-4-6`). A2 support-checks and B2 mapping verification run on **Haiku 4.5** (`claude-haiku-4-5-20251001`). Previous versions used Opus 4.7 on A1/A3/B1 — swapped to Sonnet to stay inside typical org TPM limits on long papers (Fama-French 1993 hits ~45k input tokens in a single call, which blows a 30k-TPM Opus quota).
+
+Model IDs live in one place per agent (`MODEL = "..."` at the top of each module). Swap back to Opus 4.7 by changing those constants if you have the quota and want the extra quality on A3 critiques.
 
 ## Engine validation
 
@@ -42,7 +53,7 @@ Local parquet snapshots (pre-downloaded to `data/cache/hf_datasets/`):
 
 **Survivorship bias**: Yahoo excludes delisted names. Surfaced on every universe query via `ProvenanceRecord.fidelity_note` and propagated to `BacktestResult.data_quality_flags`.
 
-## Architecture (so far)
+## Architecture
 
 ```
 src/
@@ -59,8 +70,40 @@ src/
 │   ├── costs.py    (2 × gross / K) × bps / 10000 per-month cost
 │   ├── metrics.py  Newey-West (lag = K-1), Sharpe, drawdown
 │   └── backtest.py run_backtest(spec, store) → BacktestResult
+├── pdf/            pdfplumber parser + deterministic quote verifier
+├── agents/
+│   ├── extraction/ A1 methodology_extractor (Sonnet), A2 extraction_verifier
+│   │               (Haiku support-check + deterministic fuzzy match),
+│   │               A3 adversarial_reviewer (Sonnet, exactly 3 criticisms)
+│   ├── implementation/ B1 data_mapper scaffold (Sonnet)
+│   └── prompts/    system prompts as .md files (diff-reviewable)
+└── utils/llm.py    Anthropic wrapper: structured tool-use, schema retry,
+                    disk cache keyed on (model, prompt, content, schema)
+
+app/                 MVP FastAPI + static SPA
+├── main.py         /api/demo, /api/papers, /api/extract, /api/critique, /api/backtest
+├── demo_fixture.py schema-valid JT-1993 bundle for the /api/demo endpoint
+└── static/         index.html + styles.css + app.js (no build step)
+
+scripts/
+├── phase1_gate.py          regression harness vs Ken French MOM
+├── run_jt_end_to_end.py    Phase 2 top-to-bottom demo on JT 1993
+└── run_a1_on_jt.py         A1-only run for prompt iteration
 ```
 
-Phases 2–5 add the agent layer (extraction / implementation / validation / synthesis) on top of this foundation.
+Phases 3–5 add robustness battery, divergence diagnostician, and report synthesizer on top of this foundation.
 
-See `DESIGN_NOTES.md` for non-obvious design decisions and bug postmortems.
+## MVP web UI
+
+The `app/` package wraps the Phase 1/2 surface area in a single-page dark-mode UI:
+
+- **Overview** — PDF upload, papers list, KPI grid, swarm-telemetry log.
+- **Spec** — every `ReplicationSpec` field with its verbatim `SupportingQuote` and ambiguity table.
+- **Verification** — A2 checks (status, page, confidence, Haiku support verdict, PASS/FAIL).
+- **Critique** — A3 criticisms color-coded by severity with remediation.
+- **Backtest** — paper-vs-replication gap table, engine metrics, inline SVG cumulative-return chart, recent returns.
+- **Provenance** — the `ProvenanceRecord` lineage with parent IDs and fidelity notes.
+
+Endpoints: `/api/demo` (no deps), `/api/papers` (GET/POST), `/api/extract`, `/api/critique`, `/api/backtest`. Error responses are structured JSON with an actionable `hint` field; the frontend surfaces the raw body if a response isn't JSON.
+
+See `DESIGN_NOTES.md` for non-obvious design decisions and bug postmortems, and `CLAUDE.md` for agent instructions on how to extend this repo.
