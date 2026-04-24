@@ -32,6 +32,9 @@ from src.specs.verification import (
     QuoteVerification,
     VerificationReport,
     VerifiedReplicationSpec,
+    Criticism,
+    CriticismCategory,
+    AdversarialCritique,
 )
 
 __all__ = [
@@ -61,4 +64,7 @@ __all__ = [
     "QuoteVerification",
     "VerificationReport",
     "VerifiedReplicationSpec",
+    "Criticism",
+    "CriticismCategory",
+    "AdversarialCritique",
 ]

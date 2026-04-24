@@ -21,6 +21,12 @@ from src.specs.methodology import ReplicationSpec, SensitivityPriority
 SupportStatus = Literal["yes", "no", "partial"]
 OverallConfidence = Literal["high", "medium", "low"]
 
+CriticismCategory = Literal[
+    "missed",
+    "oversimplified",
+    "alternative_interpretation",
+]
+
 
 class SupportCheck(BaseModel):
     """Haiku's judgment on whether a quote's content supports the field's claim."""
@@ -80,3 +86,36 @@ class VerifiedReplicationSpec(BaseModel):
 
     spec: ReplicationSpec
     report: VerificationReport
+
+
+class Criticism(BaseModel):
+    """One criticism from A3 — the Adversarial Reviewer.
+
+    Every A3 pass produces EXACTLY three of these (enforced at the
+    `AdversarialCritique` level). The category fixes the lens used; the
+    severity is an independent judgment about how much this criticism
+    should affect downstream confidence or spec mutation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    category: CriticismCategory
+    severity: SensitivityPriority
+    description: str = Field(min_length=1, max_length=800)
+    # evidence_quote is optional because valid criticisms can be about the
+    # ABSENCE of something in the paper that the extractor should have flagged.
+    evidence_quote: SupportingQuote | None = None
+    proposed_remediation: str = Field(min_length=1, max_length=500)
+
+
+class AdversarialCritique(BaseModel):
+    """A3's output. Exactly three criticisms, no more, no less.
+
+    Length is enforced via list `min_length=max_length=3` so the JSON
+    schema Anthropic sees maps cleanly to array constraints. Tuples
+    work in pure Pydantic but serialize awkwardly through tool-use.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    criticisms: list[Criticism] = Field(min_length=3, max_length=3)
