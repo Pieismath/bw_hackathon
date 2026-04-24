@@ -41,6 +41,12 @@ def _compute_past_return(
     For JT's canonical 6-month formation with 1-month skip:
       lookback_months=6, skip_months=1 → signal = p(t-1)/p(t-7) - 1.
 
+    If `spec.direction == "long_low"` the computed signal is negated so
+    that bucket N (top of the cross-section) picks the paper's "winners"
+    regardless of whether those are defined as high- or low-past-return
+    stocks. See DESIGN_NOTES.md for the history of this field — it was
+    previously annotation-only, fixed in this commit.
+
     If prices are missing at either endpoint for a ticker, the score is NaN.
     """
     if spec.lookback_months is None:
@@ -66,4 +72,7 @@ def _compute_past_return(
 
     end_row = price_panel.iloc[pos_end][cols]
     start_row = price_panel.iloc[pos_start][cols]
-    return (end_row / start_row - 1.0).rename("signal")
+    signal = (end_row / start_row - 1.0).rename("signal")
+    if spec.direction == "long_low":
+        signal = -signal
+    return signal

@@ -95,3 +95,68 @@ Highest hallucination risk in the roadmap, by a wide margin. An LLM asked "what 
 All four features share a pattern: derive a number from Phase 1+2 artifacts, layer an LLM interpretation on top, verify with a deterministic check. That's the same shape as A1+A2 — extract structured claims, then verify them mechanically. Keep that shape; it's what lets this system be trusted.
 
 ---
+
+## 2026-04-24 — Engine finding from D2: `signal.direction` is annotation-only
+
+### Discovered by
+
+D2 (Divergence Diagnostician), Experiment #1 on the JT 1993 replication. D2 mutated `signal.direction` from `"long_high"` to `"long_low"` and the engine returned an **identical** `mean_return` (−1.514%/mo). The mutation had zero effect on computation.
+
+### Root cause
+
+`src/engine/portfolio.py::form_portfolio` sorts the signal score via `pd.qcut` into buckets and then picks `long_bucket` and `short_bucket` by their integer labels (1 = lowest, N = highest). `signal.direction` is never consulted. Its current role is to document what the author of the spec intended; the engine encodes the direction implicitly via the bucket integers.
+
+### Practical consequence
+
+In D2's mutation space, "flip the sign of a momentum strategy" cannot be expressed as a single-variable change. The two available single-variable flips both fail under current validators:
+- `long_bucket=10 → 1` collides with `short_bucket=1` (validator: buckets must differ).
+- `short_bucket=1 → 10` collides with `long_bucket=10` (same validator).
+
+D2 worked around it by proposing a near-full swap (`long=2`, `short=9`) over multiple steps — closed 83% of the gap, but the residual 41 bps is partially attributable to the extreme-decile compression this workaround introduces (we tested P2−P9, not P1−P10).
+
+### Fix options
+
+1. Make `signal.direction` functional: in `_compute_past_return`, return `-signal` when direction is `"long_low"`. Single-variable flip becomes viable.
+2. Add a `portfolio_spec.swap_legs()` atomic mutation that sets both buckets at once, exposed via a special `parameter="portfolio.__swap__"` path in D2's apply_mutation.
+
+Option 1 is cheaper and more expressive. Flagged for a dedicated follow-up before Phase 4 robustness work.
+
+### Regression signal
+
+If a future engine change makes direction=long_low actually flip returns, D2's JT run should show Experiment #1 closing the gap (mean goes from −1.514% to +1.514%, residual 56 bps). The cached D2 log in `outputs/jt_d2_diagnosis.json` captures the current behavior for comparison.
+
+### Status (2026-04-24): FIXED after initial demo
+
+Initially deferred to preserve D2's discovery narrative for the first demo run. Resolved immediately after: `_compute_past_return` in `src/engine/signals.py` now negates the computed signal when `spec.direction == "long_low"`, so a quintile/decile sort that picks `long_bucket=N` now correctly buys the paper's "winners" regardless of whether those are defined as high- or low-past-return stocks.
+
+Regression test: `tests/test_backtest_engine.py::test_past_return_signal_direction_inverts_sign` — asserts that flipping `direction` negates the signal values exactly, so downstream buckets invert cleanly.
+
+D2 re-run on JT after the fix should now close the sign-flipped gap in a single `signal.direction` mutation, as the user predicted.
+
+---
+
+## 2026-04-24 — Phase 4 TODO: `primary_cause_kind` enum on DivergenceDiagnosis
+
+D2's `primary_cause` field currently holds a single dotted field path (e.g. `"portfolio.short_bucket"`). For the JT replication, the real answer was "leg ordering" — a logical concept spanning two fields (long_bucket + short_bucket) that couldn't be expressed as a single-variable mutation under current validators. The evidence narrative captured this correctly, but the `primary_cause` field on its own was misleading.
+
+### Proposed addition (Phase 4)
+
+```python
+class DivergenceDiagnosis(BaseModel):
+    ...
+    primary_cause: str
+    primary_cause_kind: Literal[
+        "single_field",      # one spec field responsible
+        "coupled",           # 2+ fields must change together
+        "data_window",       # sample-era mismatch
+        "universe",          # universe / coverage mismatch
+        "engine_limitation", # engine doesn't model the construction
+        "unexplained",       # no single mutation closed the gap
+    ]
+```
+
+### Why defer
+
+Requires matching changes to the D2 summarizer prompt to classify the cause kind from the experiment log. Want to see a few more papers run through the pipeline before settling the enum values.
+
+---

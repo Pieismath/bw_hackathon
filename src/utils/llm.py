@@ -35,18 +35,30 @@ CACHE_DIR = Path("data/cache/llm_cache")
 _client: Anthropic | None = None
 
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_ENV_FILE = _REPO_ROOT / ".env"
+
+
 def _get_client() -> Anthropic:
-    """Lazy-init client. `override=True` because the macOS shell ships
-    ANTHROPIC_API_KEY='' by default from the Claude desktop bundle,
-    which beats the .env unless we override."""
+    """Lazy-init client.
+
+    - Explicit `.env` path avoids load_dotenv's inspect-based stack walk,
+      which is fragile across entry points (scripts vs pytest vs heredoc).
+    - `override=True` because the macOS shell ships ANTHROPIC_API_KEY=''
+      from the Claude desktop bundle, which beats the .env unless we
+      override.
+    """
     global _client
     if _client is None:
-        load_dotenv(override=True)
+        if _ENV_FILE.exists():
+            load_dotenv(dotenv_path=_ENV_FILE, override=True)
+        else:
+            load_dotenv(override=True)
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError(
-                "ANTHROPIC_API_KEY not set after loading .env. "
-                "Check /Users/<you>/Desktop/paper_replication_machine/.env"
+                f"ANTHROPIC_API_KEY not set after loading {_ENV_FILE}. "
+                "Ensure the .env file has ANTHROPIC_API_KEY=<key>."
             )
         _client = Anthropic(api_key=api_key)
     return _client
@@ -139,7 +151,9 @@ def call_claude(
             None,
         )
         if tool_block is None:
-            # Model violated tool_choice constraint — re-ask.
+            # Model violated tool_choice constraint — re-ask with a plain
+            # user message (no tool_result needed because no tool_use was
+            # emitted).
             last_error = RuntimeError(
                 f"no tool_use block in response on attempt {attempt + 1}"
             )
@@ -159,15 +173,27 @@ def call_claude(
             validated = response_schema.model_validate(tool_block.input)
         except ValidationError as e:
             last_error = e
+            # Anthropic requires every assistant-emitted tool_use to be
+            # answered by a tool_result block in the very next user
+            # message. Appending a plain-string user message here would
+            # trigger a 400 ("tool_use ids were found without tool_result
+            # blocks").
             messages.append({"role": "assistant", "content": response.content})
             messages.append(
                 {
                     "role": "user",
-                    "content": (
-                        "Your tool input failed schema validation with the "
-                        f"following errors:\n\n{e}\n\nReturn a corrected "
-                        f"{tool_name} tool call."
-                    ),
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_block.id,
+                            "is_error": True,
+                            "content": (
+                                "Your tool input failed schema validation "
+                                f"with the following errors:\n\n{e}\n\n"
+                                f"Return a corrected {tool_name} tool call."
+                            ),
+                        }
+                    ],
                 }
             )
             continue

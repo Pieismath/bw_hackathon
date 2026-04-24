@@ -213,6 +213,39 @@ def test_past_return_signal_empty_when_insufficient_history():
     assert sig.empty
 
 
+def test_past_return_signal_direction_inverts_sign():
+    """Regression for DESIGN_NOTES 'signal.direction was annotation-only':
+    flipping spec.direction must negate the signal score so that a 2×3 /
+    decile sort picks the opposite tail."""
+    idx = pd.date_range("2020-01-31", periods=12, freq="ME").normalize()
+    prices = pd.DataFrame(
+        {
+            "WINNER": [100 * 1.05**i for i in range(12)],  # steady up
+            "LOSER": [100 * 0.95**i for i in range(12)],   # steady down
+            "FLAT": [100] * 12,
+        },
+        index=idx,
+    )
+    base = dict(
+        name="m", formula="f", inputs=("close",),
+        kind="past_return", lookback_months=6, skip_months=1,
+    )
+    spec_high = SignalSpec(**base, direction="long_high")
+    spec_low = SignalSpec(**base, direction="long_low")
+    formation = idx[10]
+
+    sig_high = compute_signal(spec_high, prices, formation, universe=list(prices.columns))
+    sig_low = compute_signal(spec_low, prices, formation, universe=list(prices.columns))
+
+    # Long-high: WINNER has highest score, LOSER has lowest.
+    assert sig_high["WINNER"] > sig_high["FLAT"] > sig_high["LOSER"]
+    # Long-low: order is inverted.
+    assert sig_low["LOSER"] > sig_low["FLAT"] > sig_low["WINNER"]
+    # And the magnitudes are exact negations of each other.
+    for sym in prices.columns:
+        assert sig_low[sym] == pytest.approx(-sig_high[sym])
+
+
 # ---------------------------------------------------------------------------
 # Newey-West sanity
 # ---------------------------------------------------------------------------

@@ -44,6 +44,21 @@ from src.specs.mapping import (
     MappingCheck,
     VerifiedDataMapping,
 )
+from src.specs.diagnosis import (
+    MutationProposal,
+    MutationResult,
+    MutationDirection,
+    DivergenceDiagnosis,
+    PrimaryCauseKind,
+)
+from src.specs.robustness import (
+    StressTestFamily,
+    SignalType,
+    GapAttribution,
+    StressTestResult,
+    RobustnessScorecard,
+    RobustnessJudgment,
+)
 
 __all__ = [
     "ProvenanceRecord",
@@ -81,4 +96,15 @@ __all__ = [
     "DataMapping",
     "MappingCheck",
     "VerifiedDataMapping",
+    "MutationProposal",
+    "MutationResult",
+    "MutationDirection",
+    "DivergenceDiagnosis",
+    "PrimaryCauseKind",
+    "StressTestFamily",
+    "SignalType",
+    "GapAttribution",
+    "StressTestResult",
+    "RobustnessScorecard",
+    "RobustnessJudgment",
 ]
