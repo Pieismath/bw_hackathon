@@ -15,7 +15,7 @@
 <nav class="topnav">
   <div class="brand">
     <span>MR KRABS</span>
-    <img class="brand-logo" src="/static/logo.png" alt="" aria-hidden="true" />
+    <img class="brand-logo" src="/static/logo.png?v=2" alt="" aria-hidden="true" />
   </div>
   <div class="topnav-right">
     <span class="verdict" id="verdict-badge" hidden></span>
@@ -30,18 +30,40 @@
   </div>
 </nav>
 
-<!-- Phase 5 polish — pipeline progress stepper -->
-<div class="pipeline-stepper" id="pipeline-stepper" hidden>
-  <span class="ps-step" data-stage="parse" data-state="pending"><span class="ps-icon"></span>Ingest</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a1" data-state="pending"><span class="ps-icon"></span>Methodology</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a2" data-state="pending"><span class="ps-icon"></span>Verify</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a3" data-state="pending"><span class="ps-icon"></span>Review</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="b" data-state="pending"><span class="ps-icon"></span>Data Map</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="engine" data-state="pending"><span class="ps-icon"></span>Backtest</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="d2" data-state="pending"><span class="ps-icon"></span>Diagnose</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="battery" data-state="pending"><span class="ps-icon"></span>Stress Battery</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="d3" data-state="pending"><span class="ps-icon"></span>CIO Verdict</span>
-  <span class="ps-collapsed" id="ps-collapsed" hidden></span>
+<!-- Pipeline progress stepper — also serves as primary navigation.
+     Each step animates to "done" as its stage completes; once done, the
+     step becomes clickable and jumps to its corresponding report view.
+     Steps stay visible after pipeline completes — the user can revisit
+     any stage by clicking its box. The sidebar nav has been removed; this
+     stepper IS the navigation. -->
+<div class="pipeline-stepper" id="pipeline-stepper" role="navigation" aria-label="Pipeline stages">
+  <button class="ps-step" data-stage="parse" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Ingest</span>
+  </button>
+  <button class="ps-step" data-stage="a1" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Methodology</span>
+  </button>
+  <button class="ps-step" data-stage="a2" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Verify</span>
+  </button>
+  <button class="ps-step" data-stage="a3" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Review</span>
+  </button>
+  <button class="ps-step" data-stage="b" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Data Map</span>
+  </button>
+  <button class="ps-step" data-stage="engine" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Replication</span>
+  </button>
+  <button class="ps-step" data-stage="d2" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Diagnosis</span>
+  </button>
+  <button class="ps-step" data-stage="battery" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">Stress Tests</span>
+  </button>
+  <button class="ps-step" data-stage="d3" data-state="pending" type="button" disabled>
+    <span class="ps-icon"></span><span class="ps-label">CIO Verdict</span>
+  </button>
 </div>
 
 <!-- Phase 5 — Headline verdict strip (above tabs, always visible once loaded) -->
@@ -102,29 +124,13 @@
 </aside>
 
 <div class="shell">
-  <!-- Side nav -->
-  <aside class="sidenav">
-    <div class="sidenav-head">
-      <div class="sidenav-title">Briefing</div>
-      <div class="sidenav-sub">Research Terminal · v0.1</div>
-    </div>
-    <nav class="sidenav-links" id="sidenav-links">
-      <a href="#" data-tab="overview" class="active"><span class="material-symbols-outlined">dashboard</span>Overview</a>
-      <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Methodology</a>
-      <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
-      <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
-      <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">science</span>Diagnosis</a>
-      <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Replication</a>
-      <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Stress Tests</a>
-      <a href="#" data-tab="provenance"><span class="material-symbols-outlined">account_tree</span>Lineage</a>
-    </nav>
-    <div class="sidenav-foot">
-      <div class="status-pill" id="status-pill">
-        <span class="dot gray"></span>
-        <span id="status-text">Idle — awaiting paper</span>
-      </div>
-    </div>
-  </aside>
+  <!-- Sidebar removed — pipeline-stepper above is the primary navigation.
+       The Lineage tab is reachable from the verdict-strip Rationale link
+       and from in-tab links; status pill moved to the top nav. -->
+  <div class="status-pill status-pill-floating" id="status-pill">
+    <span class="dot gray"></span>
+    <span id="status-text">Idle — awaiting paper</span>
+  </div>
 
   <!-- Main -->
   <main class="canvas">
