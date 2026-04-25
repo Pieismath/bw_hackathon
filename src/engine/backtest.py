@@ -105,7 +105,20 @@ def run_backtest(
     # right kind of object (factor portfolios, like AQR's), so the flag
     # would be misleading.
     is_stock_universe = spec.universe.name != "ken_french_factors"
-    if spec.signal.kind == "variance_ratio" and is_stock_universe:
+    # The original "AQR sorts 153 JKP factors, not individuals" warning is
+    # only correct for the AQR 2024 streaks paper. For the variance-ratio
+    # mean-reversion test papers (Lo-MacKinlay 1988, Poterba-Summers 1988)
+    # individual-stock VR IS what the paper concept-implies, and the AQR
+    # disclaimer would be flat wrong (a different paper's caveat leaking
+    # into a different paper's report). Disambiguate by paper_title — the
+    # AQR streaks paper is identifiable by "streaky" / "streak" tokens.
+    paper_title_lower = (spec.paper_title or "").lower()
+    is_aqr_streaks_paper = (
+        "streaky" in paper_title_lower
+        or "streak" in paper_title_lower
+        or ("aqr" in paper_title_lower and "hidden" in paper_title_lower)
+    )
+    if spec.signal.kind == "variance_ratio" and is_stock_universe and is_aqr_streaks_paper:
         data_quality_flags.append(
             "variance_ratio computed on individual stocks. The AQR streaks "
             "paper sorts JKP factor portfolios (153 factors) by VR, not "
@@ -115,6 +128,18 @@ def run_backtest(
             "— object than the factor-level VR. Treat the headline number "
             "as concept-faithful, NOT as a like-for-like replication of the "
             "paper's portfolio."
+        )
+    if spec.signal.kind == "variance_ratio" and is_stock_universe and not is_aqr_streaks_paper:
+        data_quality_flags.append(
+            "variance_ratio strategy ran on individual stocks: the engine "
+            "computes per-stock VR(k) = Var(rolling-12m return) / (12 × "
+            "Var(monthly return)) and sorts the cross-section into the "
+            "concept-implied long-short (direction set by signal.direction). "
+            "This is the tradeable portfolio implied by the paper's mean-"
+            "reversion concept; the paper itself reports VR statistics on "
+            "aggregate index returns and tests against the random-walk null, "
+            "not a long-short return — so the engine's headline is vs. zero, "
+            "not vs. a paper-quoted number."
         )
     if spec.signal.kind == "variance_ratio" and not is_stock_universe:
         data_quality_flags.append(

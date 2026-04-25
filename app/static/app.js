@@ -778,7 +778,7 @@ async function runExtraction(paperId) {
     const body = parsed.body;
     verifiedSpec = body.verified_spec;
     log('A1', `Extracted spec. Verification → ${verifiedSpec.report.overall_confidence}.`, 'a1');
-    log('A2', `${verifiedSpec.report.n_checks} quote checks; ${verifiedSpec.report.n_failed_high} high-severity failures.`, 'a2');
+    log('A2', `${verifiedSpec.report.n_checks} quote checks; ${verifiedSpec.report.n_failed_high} high-importance failures.`, 'a2');
     // body.paper_claim is /api/extract's projection of spec.headline_claim onto
     // the legacy flat shape D2 frontend reads (monthly_return, tstat, window).
     // Null when A1 found no headline number to extract — D2 will skip.
@@ -1695,7 +1695,7 @@ function renderVerification(verified) {
   table.appendChild(el('thead', {}, [
     el('tr', {}, [
       el('th', {}, 'Field'),
-      el('th', {}, 'Severity'),
+      el('th', {}, 'Importance'),
       el('th', {}, 'Status'),
       el('th', {}, 'Page'),
       el('th', {}, 'Conf'),
@@ -1802,8 +1802,13 @@ function renderBacktest(bt, paperClaim) {
   }
   if (!proxyMode && noTarget) {
     const statOnly = detectStatisticalOnlyPaper(state.bundle);
+    const isAqrStreaks = detectAqrStreaksPaper(state.bundle);
     const banner = el('div', { class: 'flag-banner sev-warn' });
-    if (statOnly) {
+    if (statOnly && isAqrStreaks) {
+      banner.appendChild(el('div', { class: 'head' }, 'Sharpe-ratio paper — no tradeable monthly L/S claim'));
+      banner.appendChild(el('div', {},
+        'AQR 2024 "Hidden Value of Streaky Returns" sorts ~153 JKP factors on a variance-ratio measure of streakiness and reports SHARPE-RATIO DIFFERENCES between the top and bottom VR terciles (t=2.67 annual / t=2.78 annualized monthly, footnote 9, Exhibit 7) — NOT a monthly long-short return number. The replication runs a 6-factor proxy on the Ken French universe (Mkt-RF, SMB, HML, RMW, CMA, Mom — sorted into terciles, ~2 factors per bucket vs. AQR\'s ~50). The implementable alpha shown here is vs. zero (no paper claim to compare against), and is structurally a different strategy at a different cross-sectional resolution.'));
+    } else if (statOnly) {
       banner.appendChild(el('div', { class: 'head' }, 'Statistical-test paper — no tradeable headline claim'));
       banner.appendChild(el('div', {},
         'This paper reports variance-ratio statistics (e.g. VR(k) testing for mean reversion vs. random walk), not a tradeable monthly long-short return. The replication runs the implicit contrarian/momentum strategy implied by signal.direction; the measured return is vs. zero (the random-walk null), NOT vs. a paper-quoted number. Examples: Lo-MacKinlay 1988, Poterba-Summers 1988. The "paper monthly L/S return" override input doesn\'t apply — the paper doesn\'t make that claim.'));
@@ -3778,9 +3783,16 @@ function renderVerdictStrip(report) {
   const noClaim = c.value == null || claimSuspicious;
   const statOnlyClaim = noClaim && detectStatisticalOnlyPaper(state.bundle);
   if (statOnlyClaim) {
-    $('#vs-claim-value').textContent = 'VR statistic';
-    $('#vs-claim-tstat').textContent = '';
-    $('#vs-claim-loc').textContent = 'Statistical test — no L/S claim';
+    const isAqrStreaks = detectAqrStreaksPaper(state.bundle);
+    if (isAqrStreaks) {
+      $('#vs-claim-value').textContent = 'Sharpe-ratio Δ';
+      $('#vs-claim-tstat').textContent = 't = 2.67 (annual) / 2.78 (monthly)';
+      $('#vs-claim-loc').textContent = 'Exhibit 7 / footnote 9 — top vs bottom VR tercile';
+    } else {
+      $('#vs-claim-value').textContent = 'VR statistic';
+      $('#vs-claim-tstat').textContent = '';
+      $('#vs-claim-loc').textContent = 'Statistical test — no L/S claim';
+    }
   } else {
     $('#vs-claim-value').textContent = claimSuspicious ? 'not extracted' : (fmtPctSigned(c.value, 3) + '/mo');
     $('#vs-claim-tstat').textContent = claimSuspicious ? '' : fmtTstat(c.tstat);
@@ -3871,9 +3883,16 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
     const noClaim = claim.monthly_return == null || suspicious;
     const statOnly = noClaim && detectStatisticalOnlyPaper(state.bundle);
     if (statOnly) {
-      if (cv) cv.textContent = 'VR statistic';
-      if (ct) ct.textContent = '';
-      if (cl) cl.textContent = 'Statistical test — no L/S claim';
+      const isAqrStreaks = detectAqrStreaksPaper(state.bundle);
+      if (isAqrStreaks) {
+        if (cv) cv.textContent = 'Sharpe-ratio Δ';
+        if (ct) ct.textContent = 't = 2.67 (annual) / 2.78 (monthly)';
+        if (cl) cl.textContent = 'Exhibit 7 / footnote 9 — top vs bottom VR tercile';
+      } else {
+        if (cv) cv.textContent = 'VR statistic';
+        if (ct) ct.textContent = '';
+        if (cl) cl.textContent = 'Statistical test — no L/S claim';
+      }
     } else {
       if (cv) cv.textContent = suspicious ? 'not extracted' : (fmtPctSigned(claim.monthly_return, 3) + '/mo');
       if (ct) ct.textContent = suspicious ? '' : fmtTstat(claim.tstat);
@@ -3928,7 +3947,12 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
       if (proxyMode) {
         cf.innerHTML = '<span class="vs-pill vs-pill-warn" title="The engine substituted a 12-month past-return proxy because the paper\'s signal kind isn\'t natively implemented yet. Every number is a verdict on the proxy, not the paper.">Proxy run</span>';
       } else if (noTarget && statOnlyVS) {
-        cf.innerHTML = '<span class="vs-pill vs-pill-info" title="Variance-ratio / autocorrelation papers (Lo-MacKinlay, Poterba-Summers, …) report statistics, not a tradeable L/S return. The implementable alpha is the implicit strategy\'s return vs zero.">Statistical test</span>';
+        const isAqrStreaks = detectAqrStreaksPaper(state.bundle);
+        if (isAqrStreaks) {
+          cf.innerHTML = '<span class="vs-pill vs-pill-info" title="AQR 2024 streaks reports Sharpe-ratio differences between top/bottom variance-ratio terciles (t=2.67 / 2.78), not a monthly L/S return. We run a 6-factor proxy on the Ken French universe.">Sharpe-ratio paper</span>';
+        } else {
+          cf.innerHTML = '<span class="vs-pill vs-pill-info" title="Variance-ratio / autocorrelation papers (Lo-MacKinlay, Poterba-Summers, …) report statistics, not a tradeable L/S return. The implementable alpha is the implicit strategy\'s return vs zero.">Statistical test</span>';
+        }
       } else if (noTarget) {
         cf.innerHTML = '<span class="vs-pill vs-pill-warn" title="A1 didn\'t extract a paper headline number (common for papers reporting Sharpe ratios or regression alphas). The implementable alpha is measured vs zero, not vs the paper\'s claim.">No paper claim</span>';
       } else {
@@ -4323,6 +4347,21 @@ function detectStatisticalOnlyPaper(bundle) {
   try {
     const kind = bundle?.verified_spec?.spec?.signal?.kind;
     return kind === 'variance_ratio';
+  } catch (_) { return false; }
+}
+
+// AQR 2024 "Hidden Value of Streaky Returns" reports Sharpe-ratio differences
+// between top/bottom variance-ratio terciles, not a tradeable monthly long-short
+// return. The signal.kind=variance_ratio detector classifies it as
+// statistical-only, but the generic banner text ("VR(k) testing for mean
+// reversion vs. random walk") is the WRONG narrative for this paper — it's
+// not a random-walk-null test; it's a streakiness sort. Detect by paper_id
+// and rewrite the banner / verdict-strip subline accordingly.
+function detectAqrStreaksPaper(bundle) {
+  try {
+    const pid = (bundle?.paper_id || '').toLowerCase();
+    return pid.includes('aqr_2024') || pid.includes('streaky_returns')
+        || pid.includes('hidden_value_of_streaky');
   } catch (_) { return false; }
 }
 

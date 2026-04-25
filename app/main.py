@@ -392,6 +392,51 @@ def _flag_window_substitution(result, window_info: dict | None):
     return result.model_copy(update={"data_quality_flags": tuple(flags)})
 
 
+def _rewrite_aqr_flag_for_non_aqr_paper(result, paper_id: str):
+    """Strip the AQR-streaks-specific cross-section warning from data_quality_flags
+    when the paper isn't AQR streaks.
+
+    The engine in src/engine/backtest.py emits a warning for variance_ratio +
+    individual-stock universes that name-checks the AQR 2024 paper specifically.
+    For Lo-MacKinlay 1988 / Poterba-Summers 1988 (which legitimately use
+    individual-stock VR), the AQR caveat is wrong — those papers DO want
+    stock-level VR. We bust the misleading cached flag and substitute the
+    correct concept-implied-portfolio note. The engine emits the right text
+    on cache miss; this is the fix-up path for results returned from the
+    backtest cache built before this disambiguation existed.
+    """
+    pid = (paper_id or "").lower()
+    is_aqr_streaks = (
+        "aqr_2024" in pid or "streaky_returns" in pid or "hidden_value_of_streaky" in pid
+    )
+    if is_aqr_streaks:
+        return result
+    flags = list(getattr(result, "data_quality_flags", ()) or ())
+    misleading_prefix = "variance_ratio computed on individual stocks. The AQR streaks paper sorts JKP factor portfolios"
+    corrected = (
+        "variance_ratio strategy ran on individual stocks: the engine "
+        "computes per-stock VR(k) = Var(rolling-12m return) / (12 × "
+        "Var(monthly return)) and sorts the cross-section into the "
+        "concept-implied long-short (direction set by signal.direction). "
+        "This is the tradeable portfolio implied by the paper's mean-"
+        "reversion concept; the paper itself reports VR statistics on "
+        "aggregate index returns and tests against the random-walk null, "
+        "not a long-short return — so the engine's headline is vs. zero, "
+        "not vs. a paper-quoted number."
+    )
+    rewritten = []
+    swapped = False
+    for f in flags:
+        if isinstance(f, str) and f.startswith(misleading_prefix):
+            rewritten.append(corrected)
+            swapped = True
+        else:
+            rewritten.append(f)
+    if not swapped:
+        return result
+    return result.model_copy(update={"data_quality_flags": tuple(rewritten)})
+
+
 # Per-paper-id ENGINE window overrides. Distinct from PAPER_ID_OVERRIDES in
 # extract_and_verify (which alters the *spec* itself, e.g. min_price). These
 # overrides only affect what the engine RUNS on — the spec keeps the paper's
@@ -1128,6 +1173,27 @@ def _known_headline_claim(paper_id: str):
                 match_confidence=0.0,
             ),
         )
+    # Asness, Moskowitz, Pedersen (2013) — "Value and Momentum Everywhere".
+    # Headline tradeable: US-stock momentum P3-P1 (top-tercile minus
+    # bottom-tercile, equal-weighted, 11/1 past-return signal). Paper
+    # reports annualized 5.4%/yr ⇒ 0.0045/mo, t=2.08 (Table I Panel A,
+    # US-stock momentum P3-P1 column). The PDF stores Table I with
+    # mirrored character order so A1 cannot recover this verbatim — we
+    # hardcode the headline so D2/D3/verdict-strip have a real target.
+    if "asness_moskowitz_pedersen_2013" in pid or "value_and_momentum_everywhere" in pid:
+        return HeadlineClaim(
+            metric="monthly_long_short_return",
+            monthly_return=0.0045,
+            t_stat=2.08,
+            window_label="January 1972 – July 2011",
+            paper_location="Table I, Panel A — US-stock momentum P3-P1 (high-minus-low tercile spread, equal-weighted)",
+            supporting_quote=SupportingQuote(
+                text="manually-curated headline (registry override — Table I Panel A US momentum P3-P1: 5.4%/yr annualized, t=2.08)",
+                page=12,
+                verified=False,
+                match_confidence=0.0,
+            ),
+        )
     return None
 
 
@@ -1401,6 +1467,12 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "engine", "active")
             baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
             baseline = _flag_window_substitution(baseline, window_info)
+            # Strip the AQR-streaks-specific cross-section warning from
+            # cached results when the current paper is NOT AQR streaks.
+            # Lo-MacKinlay / Poterba-Summers legitimately use stock-level VR
+            # — leaving "AQR sorts JKP factors not individuals" in the
+            # backtest flag list misattributes a different paper's caveat.
+            baseline = _rewrite_aqr_flag_for_non_aqr_paper(baseline, paper_id)
             extra_flags = [
                 m for m in (
                     kind_fallback_msg, lookback_clamp_msg,
