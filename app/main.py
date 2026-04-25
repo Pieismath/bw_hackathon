@@ -238,16 +238,36 @@ def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str |
     """
     sig = spec.signal
     if sig.kind == "past_return":
+        if sig.lookback_months is None:
+            # Spec validation normally forbids this, but a model_copy elsewhere
+            # could have produced it. Fall back to 12-month momentum.
+            new_signal = sig.model_copy(update={"lookback_months": 12})
+            flag = (
+                "engine fallback: signal.kind='past_return' had lookback_months=None; "
+                "defaulting to 12-month momentum as a structured proxy."
+            )
+            return spec.model_copy(update={"signal": new_signal}), flag
         return spec, None
+    # Non-past_return kinds (custom, fundamental_ratio): substitute a
+    # past_return proxy. Many learned/custom signals don't carry a months
+    # lookback at all (daily streaks, transformer outputs); when missing,
+    # default to 12 months — the most common momentum window in the
+    # cross-section literature — and let the data_quality_flag make the
+    # substitution explicit.
+    proxy_lookback = sig.lookback_months if sig.lookback_months is not None else 12
     flag = (
         f"engine fallback: signal.kind='{sig.kind}' is not yet implemented in "
-        f"the canonical engine; substituting past_return with the paper's "
-        f"lookback_months={sig.lookback_months}, skip_months={sig.skip_months}, "
-        f"direction={sig.direction} as a structured proxy. The replicated "
-        f"strategy is NOT the paper's exact signal — treat the headline "
-        f"number as a coverage-shaped lower bound, not a like-for-like number."
+        f"the canonical engine; substituting past_return with "
+        f"lookback_months={proxy_lookback}"
+        f"{' (default — paper did not specify a months window)' if sig.lookback_months is None else ''}, "
+        f"skip_months={sig.skip_months}, direction={sig.direction} as a "
+        f"structured proxy. The replicated strategy is NOT the paper's exact "
+        f"signal — treat the headline number as a coverage-shaped lower "
+        f"bound, not a like-for-like number."
     )
-    new_signal = sig.model_copy(update={"kind": "past_return"})
+    new_signal = sig.model_copy(
+        update={"kind": "past_return", "lookback_months": proxy_lookback}
+    )
     return spec.model_copy(update={"signal": new_signal}), flag
 
 
@@ -400,13 +420,18 @@ def backtest(body: BacktestBody):
             cache_dir=Path("data/cache/query_cache"),
         )
         spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, kind_fallback_msg = _engine_kind_fallback(spec)
         result = run_backtest(spec, store, transaction_cost_bps=body.transaction_cost_bps)
         result = _flag_window_substitution(result, window_info)
+        if kind_fallback_msg:
+            flags = list(result.data_quality_flags) + [kind_fallback_msg]
+            result = result.model_copy(update={"data_quality_flags": tuple(flags)})
         src_.close()
         return _sanitize_for_json({
             "backtest": result.model_dump(mode="json"),
             "clip_note": clip_note,
             "window_info": window_info,
+            "kind_fallback": kind_fallback_msg,
         })
     except Exception as e:
         traceback.print_exc()
@@ -467,11 +492,15 @@ def robustness(body: RobustnessBody):
             cache_dir=Path("data/cache/query_cache"),
         )
         spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, kind_fallback_msg = _engine_kind_fallback(spec)
         scorecard = run_battery(spec, store, families=body.families)
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
         baseline = _flag_window_substitution(baseline, window_info)
+        if kind_fallback_msg:
+            flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+            baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
         # D3 needs a PaperClaim for context. If the caller didn't supply one
         # (the body schema doesn't model it), fabricate a minimal placeholder
         # so the judgment can still ground its narrative in the scorecard.
@@ -514,6 +543,7 @@ def robustness(body: RobustnessBody):
             "judgment_error": judgment_error,
             "clip_note": clip_note,
             "window_info": window_info,
+            "kind_fallback": kind_fallback_msg,
         })
     except BaseException as e:
         traceback.print_exc()
@@ -584,10 +614,14 @@ def diagnose_endpoint(body: DiagnoseBody):
             cache_dir=Path("data/cache/query_cache"),
         )
         spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, kind_fallback_msg = _engine_kind_fallback(spec)
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
         baseline = _flag_window_substitution(baseline, window_info)
+        if kind_fallback_msg:
+            flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+            baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
         claim = PaperClaim(
             claim_id="caller_supplied_headline",
             metric="monthly_long_short_return",
@@ -640,12 +674,14 @@ def diagnose_endpoint(body: DiagnoseBody):
                 "diagnosis_error": diagnosis_error,
                 "clip_note": clip_note,
                 "window_info": window_info,
+                "kind_fallback": kind_fallback_msg,
             })
         return _sanitize_for_json({
             "diagnosis": diagnosis.model_dump(mode="json"),
             "n_experiments": diagnosis.experiments_run,
             "clip_note": clip_note,
             "window_info": window_info,
+            "kind_fallback": kind_fallback_msg,
         })
     except BaseException as e:
         traceback.print_exc()

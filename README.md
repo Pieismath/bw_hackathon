@@ -128,6 +128,8 @@ The `app/` package wraps the Phase 1/2 surface area in a single-page dark-mode U
 
 Endpoints: `/api/demo` (no deps), `/api/papers` (GET/POST), `/api/extract`, `/api/critique`, `/api/backtest`, `/api/robustness`, `/api/diagnose`. Error responses are structured JSON with an actionable `hint` field; the frontend surfaces the raw body if a response isn't JSON.
 
+Every endpoint that drives the engine (`/api/backtest`, `/api/robustness`, `/api/diagnose`, plus the orchestrated `/api/pipeline/start`) runs two pre-engine substitutions on the incoming spec: `_clip_spec_to_data_window` clips out-of-range date windows (e.g. JT-1993's 1965–1989 pre-defeatbeta-panel window), and `_engine_kind_fallback` swaps non-`past_return` signal kinds (`custom`, `fundamental_ratio` — AQR-style daily-streak signals, learned/transformer outputs) for a 12-month-momentum proxy. Both substitutions emit a `data_quality_flag` on the resulting `BacktestResult`, surfaced in the UI as a yellow banner, so the swap stays honest.
+
 See `DESIGN_NOTES.md` for non-obvious design decisions and bug postmortems, and `CLAUDE.md` for agent instructions on how to extend this repo.
 
 ## Roadmap (Phase 5+)
