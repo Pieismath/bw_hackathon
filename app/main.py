@@ -221,6 +221,36 @@ def critique(body: PaperIdBody):
 # Phase 1 — backtest engine
 # ---------------------------------------------------------------------------
 
+def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None]:
+    """If `signal.kind` is one the engine can't run today, substitute the
+    closest structured kind that lets the pipeline complete.
+
+    Today the engine only implements `past_return`. Papers whose A1 emits
+    `custom` (e.g. transformer-output, learned-model signals) or
+    `fundamental_ratio` would otherwise stall at the engine stage and leave
+    the Backtest / Robustness / Diagnosis tabs empty. We substitute
+    `kind='past_return'` keeping the original lookback/skip/direction —
+    a structured proxy that respects the paper's window and direction even
+    if it can't reproduce the model output. The substitution is flagged via
+    a data_quality_flag so the UI banner / scorecards make the swap honest.
+
+    Returns (possibly-substituted spec, flag message or None).
+    """
+    sig = spec.signal
+    if sig.kind == "past_return":
+        return spec, None
+    flag = (
+        f"engine fallback: signal.kind='{sig.kind}' is not yet implemented in "
+        f"the canonical engine; substituting past_return with the paper's "
+        f"lookback_months={sig.lookback_months}, skip_months={sig.skip_months}, "
+        f"direction={sig.direction} as a structured proxy. The replicated "
+        f"strategy is NOT the paper's exact signal — treat the headline "
+        f"number as a coverage-shaped lower bound, not a like-for-like number."
+    )
+    new_signal = sig.model_copy(update={"kind": "past_return"})
+    return spec.model_copy(update={"signal": new_signal}), flag
+
+
 def _flag_window_substitution(result, window_info: dict | None):
     """Append the date-substitution note to BacktestResult.data_quality_flags
     so any downstream consumer (UI banner, robustness, D2, exported reports)
@@ -722,6 +752,10 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         # …) gets a runnable engine window with a data_quality_flag.
         clipped, _clip_note, window_info = _clip_spec_to_data_window(spec_with_critique)
         bundle["window_info"] = window_info
+        # Substitute signal.kind if the engine can't run it (e.g. 'custom') so
+        # the rest of the pipeline (battery, D2, D3) still produces output the
+        # SPA can render. The structured-proxy substitution is flagged below.
+        clipped, kind_fallback_msg = _engine_kind_fallback(clipped)
         src = DefeatBetaYahooSource(cache_root=Path("data/cache/hf_datasets"))
         store = PointInTimeDataStore(
             sources={"defeatbeta_yahoo": src},
@@ -731,6 +765,9 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "engine", "active")
             baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
             baseline = _flag_window_substitution(baseline, window_info)
+            if kind_fallback_msg:
+                flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+                baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
             bundle["backtest"] = baseline.model_dump(mode="json")
             _set_stage(job_id, "engine", "done")
 
