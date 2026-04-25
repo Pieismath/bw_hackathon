@@ -659,6 +659,11 @@ async function runRobustness(paperId, verified) {
     state.bundle.robustness = parsed.body;
     renderRobustness(state.bundle.robustness);
     renderLineage(state.bundle);
+    // Refresh the top verdict strip with the LIVE D3 numbers — otherwise it
+    // keeps showing whatever /api/report cached earlier (a postfix run with
+    // a different spec), and the headline disagrees with the engine output
+    // the user is actually looking at.
+    refreshVerdictStripFromLive(parsed.body, state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     const sc = parsed.body.scorecard;
     if (parsed.body.judgment) {
@@ -2874,8 +2879,11 @@ async function loadPhase5Report() {
     const data = await r.json();
     phase5.report = data;
     renderVerdictStrip(data);
-    renderDiagnosisTab(data);
-    renderRobustnessTab(data);
+    // renderDiagnosisTab / renderRobustnessTab target Phase-5-only IDs that
+    // were dropped from index.html when we kept our live Robustness/Diagnosis
+    // tab bodies during the merge. Calling them throws null-textContent.
+    // Skip them — our live tabs render the same data via /api/robustness
+    // and /api/diagnose anyway.
     renderDbtPanel(data);
     log('SYS', `Phase 5 report loaded: ${data.headline?.paper_id ?? '—'}`, 'sys');
     return data;
@@ -2930,6 +2938,73 @@ function renderVerdictStrip(report) {
 
   // Topnav: the redundant verdict badge stays hidden (verdict strip carries
   // this signal already; per Phase 5 polish brief).
+}
+
+// Refresh the verdict strip with LIVE /api/robustness data so the headline
+// stays in sync with whatever the engine + D3 actually just produced. The
+// /api/report path populates the strip from cached postfix outputs, which
+// can be stale relative to the user's current dial settings or paper.
+function refreshVerdictStripFromLive(robustnessPayload, bundle) {
+  const strip = $('#verdict-strip');
+  if (!strip) return;
+  const sc = robustnessPayload && robustnessPayload.scorecard;
+  const j  = robustnessPayload && robustnessPayload.judgment;
+  if (!sc) return;
+
+  // Paper title + claim columns from the bundle's verified spec / paper_claim
+  const claim = bundle && bundle.paper_claim;
+  const verified = bundle && bundle.verified_spec && bundle.verified_spec.spec;
+  const titleEl = $('#vs-paper-title');
+  if (titleEl && verified && verified.paper_title) titleEl.textContent = verified.paper_title;
+
+  if (claim) {
+    const cv = $('#vs-claim-value');
+    if (cv) cv.textContent = fmtPctSigned(claim.monthly_return, 3) + '/mo';
+    const ct = $('#vs-claim-tstat');
+    if (ct) ct.textContent = fmtTstat(claim.tstat);
+    const cl = $('#vs-claim-loc');
+    if (cl) cl.textContent = claim.paper_location || claim.window || '';
+  }
+
+  // Implementable α + tag from D3 judgment, falling back to the scorecard
+  // baseline if D3 is unavailable.
+  const alpha = j ? j.implementable_alpha : sc.baseline_mean_return;
+  const tstat = j ? null : sc.baseline_tstat;
+  const conf  = j ? j.confidence : 'medium';
+  const sigType = j ? j.signal_type : '—';
+  const gap = j ? j.gap_attribution : null;
+
+  const iv = $('#vs-impl-value');
+  if (iv) iv.textContent = fmtPctSigned(alpha, 3) + '/mo';
+  const it = $('#vs-impl-tstat');
+  if (it) it.textContent = (j ? '' : fmtTstat(tstat));
+  const tagLabel = tradeableLabel(alpha, tstat ?? 0, conf);
+  const tag = $('#vs-tag');
+  if (tag) tag.textContent = tagLabel;
+  const verdictCol = $('#vs-col-verdict');
+  if (verdictCol) verdictCol.setAttribute('data-tag', tagLabel);
+
+  // Confidence + signal-type subline
+  const cf = $('#vs-confidence');
+  if (cf) cf.textContent = `confidence: ${conf} · ${sigType}`;
+
+  // Window + gap-attribution row from window_info / judgment
+  const wi = robustnessPayload.window_info || {};
+  const pwEl = $('#vs-paper-window');
+  if (pwEl) pwEl.textContent = ' ' + (wi.paper_start && wi.paper_end ? `${wi.paper_start} → ${wi.paper_end}` : '—');
+  const ewEl = $('#vs-engine-window');
+  if (ewEl) ewEl.textContent = ' ' + (wi.engine_start && wi.engine_end ? `${wi.engine_start} → ${wi.engine_end}` : '—');
+  const gaEl = $('#vs-gap-attr');
+  if (gaEl) gaEl.textContent = ' ' + ((gap || '—').replace(/_/g, ' '));
+
+  // Why-popover summary
+  const summary = j ? (j.summary || j.implementable_alpha_basis || '') : 'D3 judgment unavailable; showing baseline scorecard numbers.';
+  const sumEl = $('#vs-summary');
+  if (sumEl) sumEl.textContent = summary;
+  const popover = $('#vs-why-popover');
+  if (popover) popover.textContent = summary;
+
+  strip.hidden = false;
 }
 
 // "Why?" popover toggle for the implementable-alpha summary clause
