@@ -1724,16 +1724,15 @@ function renderCritique(critique) {
 function renderBacktest(bt, paperClaim) {
   const root = $('#backtest-body');
   root.innerHTML = '';
-  // KF factor-comparison banner — render even when bt is null. This is the
-  // free falsification test: did the published Ken French factor realize
-  // the paper's claim over the paper's window? Useful for pre-1994 papers
-  // where the engine can't run a stock-level replication at all.
-  const fc = state.bundle && state.bundle.factor_compare;
-  if (fc) renderFactorCompareBanner(root, fc);
+  // KF factor-comparison banner removed from the UI — it was a
+  // falsification test against the published Ken French MOM factor that
+  // confused users by showing a number wildly different from the engine's
+  // Implementable Alpha (different universe + construction + window). The
+  // /api/factor_compare endpoint and runFactorCompare fetcher are kept so
+  // the bundle still carries the data for any future surface that wants
+  // it; this Backtest-tab banner is the only place that rendered it.
   if (!bt) {
-    if (!fc) {
-      root.appendChild(emptyState('trending_up', 'No backtest result. Use the demo bundle or run /api/backtest.'));
-    }
+    root.appendChild(emptyState('trending_up', 'No backtest result. Use the demo bundle or run /api/backtest.'));
     return;
   }
 
@@ -1771,7 +1770,11 @@ function renderBacktest(bt, paperClaim) {
   // or partially-clipped to the data panel).
   const wi = state.bundle && state.bundle.window_info;
   if (wi && (wi.substituted || wi.clipped)) {
-    const severity = wi.substituted ? 'fail' : 'warn';
+    // Both substitution and clipping render as 'warn' (yellow). An OOS
+    // run isn't a failure — it's still a valid test of the spec, just
+    // on data the paper didn't see. The banner copy already explains
+    // the caveat; severity 'fail' (red) was overstating the badness.
+    const severity = 'warn';
     const headline = wi.substituted
       ? 'Post-publication out-of-sample run — paper\'s original window is not in the data panel.'
       : 'Window clipped to the data panel — engine ran a strict subset of the paper\'s window.';
@@ -2495,7 +2498,7 @@ class EquityChart {
 
 const FAMILY_ORDER = ['lag', 'costs', 'subperiod', 'liquidity', 'data_quality', 'capacity'];
 const FAMILY_LABEL = {
-  lag: 'Execution lag',
+  lag: 'Signal staleness',
   costs: 'Transaction costs',
   subperiod: 'Subperiod stability',
   liquidity: 'Liquidity filter',
@@ -2594,9 +2597,17 @@ function renderRobustness(robustness) {
   });
 
   // Decay charts (lag + costs) — show side-by-side BEFORE the per-family tables.
+  // Lag-family rows now sweep `signal.skip_months` rather than the legacy
+  // `signal_lag_days`. Read whichever key the row carries so the chart works
+  // for old AND new scorecard shapes (cached snapshots may still hold either).
+  const lagXKey = (t) =>
+    t.parameter_swept?.skip_months ??
+    t.parameter_swept?.signal_lag_days ??
+    0;
   const lagTests = (grouped.get('lag') || []).slice().sort((a, b) =>
-    (a.parameter_swept?.signal_lag_days ?? 0) - (b.parameter_swept?.signal_lag_days ?? 0)
+    lagXKey(a) - lagXKey(b)
   );
+  const lagUsesMonths = lagTests.some((t) => t.parameter_swept && 'skip_months' in t.parameter_swept);
   const costTests = (grouped.get('costs') || []).slice().sort((a, b) =>
     (a.parameter_swept?.transaction_cost_bps ?? 0) - (b.parameter_swept?.transaction_cost_bps ?? 0)
   );
@@ -2608,13 +2619,18 @@ function renderRobustness(robustness) {
     ]));
     const grid = el('div', { class: 'decay-grid' });
     if (lagTests.length >= 2) {
+      const lagTitle = lagUsesMonths ? 'Signal Staleness' : 'Execution Lag';
+      const lagXLabel = lagUsesMonths ? 'Signal Skip (months)' : 'Signal Lag (days)';
+      const lagMarkerUnit = lagUsesMonths ? 'm' : 'd';
       grid.appendChild(buildDecayCard({
-        title: 'Execution Lag',
-        xLabel: 'Signal Lag (days)',
+        title: lagTitle,
+        xLabel: lagXLabel,
         marker: scorecard.lag_half_life_days,
-        markerLabel: scorecard.lag_half_life_days != null ? `Half-life ${fmtNum(scorecard.lag_half_life_days, 1)}d` : null,
+        markerLabel: scorecard.lag_half_life_days != null
+          ? `Half-life ${fmtNum(scorecard.lag_half_life_days, 1)}${lagMarkerUnit}`
+          : null,
         points: lagTests.map((t) => ({
-          x: t.parameter_swept?.signal_lag_days ?? 0,
+          x: lagXKey(t),
           y: t.headline_metric,
           tstat: t.headline_tstat,
           surviving: t.surviving,
