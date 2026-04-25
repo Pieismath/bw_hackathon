@@ -395,6 +395,7 @@ $('#reset-btn').addEventListener('click', () => {
   state.bundle = null;
   state.originalSpec = null;
   state.selectedPaperId = null;
+  state.lastSeededPaperId = null;
   $('#spec-body').innerHTML = '';
   $('#verification-body').innerHTML = '';
   $('#critique-body').innerHTML = '';
@@ -768,10 +769,18 @@ function applyBundle(bundle) {
   // Take a deep clone so further dial reads don't mutate the bundle.
   if (bundle.verified_spec && bundle.verified_spec.spec) {
     state.originalSpec = JSON.parse(JSON.stringify(bundle.verified_spec.spec));
-    // Only re-seed the dial form when the user is NOT in the middle of an
-    // explicit "Run pipeline" invocation — otherwise we'd clobber their dials
-    // with the freshly extracted A1 values right before they get applied.
-    if (!state.running) seedDialFormFromSpec(state.originalSpec);
+    // Re-seed the dial form whenever the paper changes (so the freshly
+    // extracted A1 values become the new "defaults" — applyDials becomes a
+    // no-op and no field shows up as "(overridden)"). For repeated calls
+    // with the same paper mid-pipeline-run, keep the user's in-flight dial
+    // edits intact instead of clobbering them.
+    const paperId = state.originalSpec.paper_id;
+    if (paperId !== state.lastSeededPaperId) {
+      seedDialFormFromSpec(state.originalSpec);
+      state.lastSeededPaperId = paperId;
+    } else if (!state.running) {
+      seedDialFormFromSpec(state.originalSpec);
+    }
   }
   // If the bundle came in with a paper_id, default the selector to it.
   if (bundle.paper_id) {
