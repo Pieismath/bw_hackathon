@@ -883,15 +883,19 @@ async function refreshPapers() {
         el('div', { class: 'actions' }, [
           el('button', {
             onclick: () => {
+              // The Run config card is hidden, so re-running on a
+              // previously uploaded paper goes through here: select the
+              // paper, sync the (hidden) dropdown so runPipelineFromDials
+              // sees it, and kick the pipeline directly.
               state.selectedPaperId = p.paper_id;
               const sel = $('#runconfig-paper-select');
               if (sel) sel.value = p.paper_id;
               refreshRunButton();
               refreshPapers();
-              showTab('overview');
-              log('SYS', `Selected ${p.paper_id}. Adjust dials, then click Run pipeline.`, 'sys');
+              log('SYS', `Re-running pipeline on ${p.paper_id}…`, 'sys');
+              runPipelineFromDials();
             },
-          }, isSelected ? 'Selected' : 'Select'),
+          }, isSelected ? 'Re-run' : 'Run'),
         ]),
       ]);
       wrap.appendChild(row);
@@ -1015,7 +1019,7 @@ function buildLiveReport(bundle) {
     implAlpha = bt.mean_return;
     tstat = bt.alpha_tstat;
     confidence = 'medium';
-    signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.3 ? 'real' : 'noise';
+    signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.5 ? 'real' : 'noise';
   }
 
   const proxyMode = detectProxyMode(bt);
@@ -1058,7 +1062,7 @@ function tradeableLabel_(implAlpha, confidence, tstat, opts = {}) {
   if (opts.noTarget) return 'NO PAPER TARGET';
   if (implAlpha === null || implAlpha === undefined) return 'PENDING';
   if (implAlpha < 0) return 'UNDER WATER';
-  if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.3) return 'NOT TRADEABLE AT SCALE';
+  if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.5) return 'NOT TRADEABLE AT SCALE';
   if (implAlpha < 0.0050 || confidence === 'low') return 'BORDERLINE';
   return 'TRADEABLE';
 }
@@ -1425,7 +1429,7 @@ function renderBacktest(bt, paperClaim) {
     } else {
       banner.appendChild(el('div', { class: 'head' }, 'No comparison target — verdict is vs zero, not vs the paper'));
       banner.appendChild(el('div', {},
-        'A1 did not extract a usable headline claim and no manual override was supplied. The implementable-alpha verdict, gap-attribution narrative, and D2 diagnosis cannot be computed because there\'s nothing to compare against. Enter the paper\'s monthly long-short return and t-stat in the Run config panel\'s "Paper headline" inputs and re-run.'));
+        'A1 did not extract a usable headline claim. The implementable-alpha verdict, gap-attribution narrative, and D2 diagnosis cannot be computed because there\'s nothing to compare against. Common cause: paper reports a Sharpe ratio, regression alpha, or non-standard headline metric instead of a clean monthly long-short return.'));
     }
     root.appendChild(banner);
   }
@@ -3449,7 +3453,7 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   } else if (noTarget && statOnlyVS) {
     summary = 'This is a statistical-test paper (variance ratio / autocorrelation against the random-walk null) — Lo-MacKinlay 1988, Poterba-Summers 1988, and similar. The paper does NOT report a tradeable monthly long-short return; it reports VR(k) statistics. The implementable-alpha number is the engine\'s alpha for the IMPLICIT contrarian/momentum strategy implied by signal.direction, measured vs zero (the random-walk null). The "Paper headline" override input does not apply — entering a number would fabricate a claim the paper does not make.';
   } else if (noTarget) {
-    summary = 'The paper\'s headline number was not supplied (A1 could not extract one and no manual override was entered in the Run config panel). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target. Enter the paper\'s monthly long-short return and t-stat in the override inputs and re-run.';
+    summary = 'The paper\'s headline number was not supplied (A1 could not extract one — common when the paper reports a Sharpe ratio, regression alpha, or non-standard metric). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target.';
   } else {
     summary = j ? (j.summary || j.implementable_alpha_basis || '') : 'D3 judgment unavailable; showing baseline scorecard numbers.';
   }
@@ -3692,7 +3696,7 @@ function tradeableLabel(alpha, tstat, confidence, opts = {}) {
   if (opts.noTarget) return 'NO PAPER TARGET';
   if (alpha == null) return 'UNKNOWN';
   if (alpha < 0) return 'UNDER WATER';
-  if (tstat != null && Math.abs(tstat) < 1.3) return 'NOT TRADEABLE AT SCALE';
+  if (tstat != null && Math.abs(tstat) < 1.5) return 'NOT TRADEABLE AT SCALE';
   if (alpha < 0.005 || confidence === 'low') return 'BORDERLINE';
   return 'TRADEABLE';
 }

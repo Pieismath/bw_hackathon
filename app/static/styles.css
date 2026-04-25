@@ -1068,6 +1068,27 @@ details.lineage-section > .section-body {
 
 .flag-banner.flag-amber { color: var(--warning); }
 
+/* Severity variants for the factor-comparison banner — green for supported,
+ * red for falsified, blue for informational verdicts. */
+.flag-banner.sev-ok {
+  background: rgba(87, 199, 133, 0.08);
+  border-color: rgba(87, 199, 133, 0.45);
+  color: var(--success);
+}
+.flag-banner.sev-ok .head { color: var(--success); }
+.flag-banner.sev-fail {
+  background: rgba(224, 108, 117, 0.08);
+  border-color: rgba(224, 108, 117, 0.45);
+  color: var(--danger);
+}
+.flag-banner.sev-fail .head { color: var(--danger); }
+.flag-banner.sev-info {
+  background: rgba(91, 157, 255, 0.06);
+  border-color: rgba(91, 157, 255, 0.4);
+  color: var(--accent);
+}
+.flag-banner.sev-info .head { color: var(--accent); }
+
 /* Window-substitution banner */
 .flag-banner.window-banner {
   background: rgba(224, 108, 117, 0.08);
