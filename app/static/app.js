@@ -474,15 +474,33 @@ async function runFullPipeline(paperId) {
     const jobId = parsed.body.job_id;
     log('SYS', `pipeline started, job=${jobId}`, 'sys');
     const finalPayload = await trackPipelineJob(jobId);
+    const liveBundle = finalPayload?.result;
     if (finalPayload?.error) {
-      log('SYS', `pipeline failed: ${finalPayload.error}`, 'sys');
+      log('SYS', `pipeline failed at ${finalPayload.stage}: ${finalPayload.error}`, 'sys');
       setStatus('Pipeline failed', 'red');
+      // Render whatever stages did complete so the user sees the extracted
+      // spec / critique / mapping even though e.g. the engine raised.
+      if (liveBundle) {
+        log('SYS', `Showing partial results from ${liveBundle.paper_id}.`, 'sys');
+        applyBundle(liveBundle);
+      }
       return;
     }
     setStatus('Pipeline complete', 'green');
-    // After completion, regenerate report.json + reload the UI from it
-    await fetch('/api/report/regenerate', { method: 'POST' });
-    await loadPhase5Report();
+    // Prefer the live-run bundle the worker stowed in PIPELINE_JOBS[job].result —
+    // applying it directly avoids the static outputs/jt_*.json fallback that
+    // /api/report/regenerate reads (which would render JT after a testqt run).
+    if (liveBundle) {
+      log('SYS', `Rendering live ${liveBundle.paper_id} pipeline output.`, 'sys');
+      applyBundle(liveBundle);
+      if (liveBundle.window_info?.substituted) {
+        log('SYS', liveBundle.window_info.message, 'sys');
+      }
+    } else {
+      // No live bundle (older pipeline path) — fall back to the static report
+      await fetch('/api/report/regenerate', { method: 'POST' });
+      await loadPhase5Report();
+    }
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
     setStatus('Error', 'red');

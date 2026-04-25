@@ -221,6 +221,22 @@ def critique(body: PaperIdBody):
 # Phase 1 — backtest engine
 # ---------------------------------------------------------------------------
 
+def _flag_window_substitution(result, window_info: dict | None):
+    """Append the date-substitution note to BacktestResult.data_quality_flags
+    so any downstream consumer (UI banner, robustness, D2, exported reports)
+    sees the substitution without having to read clip_note/window_info
+    separately. Idempotent: returns the result unchanged if no substitution
+    or clip happened.
+    """
+    if not window_info or not (window_info.get("substituted") or window_info.get("clipped")):
+        return result
+    msg = window_info.get("message") or ""
+    flags = list(getattr(result, "data_quality_flags", ()) or ())
+    if msg and msg not in flags:
+        flags.append(msg)
+    return result.model_copy(update={"data_quality_flags": tuple(flags)})
+
+
 def _clip_spec_to_data_window(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None, dict | None]:
     """If spec.start_date / end_date fall outside the parquet panel, clip them.
 
@@ -355,6 +371,7 @@ def backtest(body: BacktestBody):
         )
         spec, clip_note, window_info = _clip_spec_to_data_window(spec)
         result = run_backtest(spec, store, transaction_cost_bps=body.transaction_cost_bps)
+        result = _flag_window_substitution(result, window_info)
         src_.close()
         return _sanitize_for_json({
             "backtest": result.model_dump(mode="json"),
@@ -424,6 +441,7 @@ def robustness(body: RobustnessBody):
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
+        baseline = _flag_window_substitution(baseline, window_info)
         # D3 needs a PaperClaim for context. If the caller didn't supply one
         # (the body schema doesn't model it), fabricate a minimal placeholder
         # so the judgment can still ground its narrative in the scorecard.
@@ -539,6 +557,7 @@ def diagnose_endpoint(body: DiagnoseBody):
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
+        baseline = _flag_window_substitution(baseline, window_info)
         claim = PaperClaim(
             claim_id="caller_supplied_headline",
             metric="monthly_long_short_return",
@@ -655,8 +674,11 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
     Every agent stage transition is reflected in PIPELINE_JOBS[job_id]['stage']
     so the frontend stepper updates in real time. Each stage that fails marks
     the job done with the error message and stops; downstream stages are
-    skipped.
+    skipped. On success, the live results are stowed in
+    PIPELINE_JOBS[job_id]['result'] as a bundle the SPA can render directly
+    via applyBundle() — bypassing the static outputs/jt_*.json report aggregator.
     """
+    bundle: dict = {"paper_id": paper_id}
     try:
         from src.agents.extraction import (
             extract_and_verify, fold_high_severity_into_spec, review,
@@ -667,14 +689,16 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         from src.data import DefeatBetaYahooSource, PointInTimeDataStore
         from src.robustness import run_battery
         from src.specs import PaperClaim, SupportingQuote
-        from datetime import date
 
         _set_stage(job_id, "parse", "active")
         pdf = _load_pdf(paper_id)
+        _set_stage(job_id, "parse", "done")
 
         _set_stage(job_id, "a1", "active")
         verified = extract_and_verify(pdf, max_retries=3, use_cache=True)
         spec = verified.spec
+        bundle["paper_title"] = spec.paper_title
+        bundle["verified_spec"] = verified.model_dump(mode="json")
         _set_stage(job_id, "a1", "done")
 
         _set_stage(job_id, "a2", "done")  # A2 is folded into extract_and_verify
@@ -682,18 +706,22 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         _set_stage(job_id, "a3", "active")
         critique = review(pdf, spec, verification_report=verified.report, use_cache=True)
         spec_with_critique = fold_high_severity_into_spec(spec, critique)
+        bundle["critique"] = critique.model_dump(mode="json")
         _set_stage(job_id, "a3", "done")
 
         _set_stage(job_id, "b", "active")
         mapping = map_data(spec_with_critique, use_cache=True)
-        verify_mapping(mapping, spec_with_critique, use_llm_check=True, use_cache=True)
+        verified_mapping = verify_mapping(
+            mapping, spec_with_critique, use_llm_check=True, use_cache=True,
+        )
+        bundle["mapping"] = verified_mapping.model_dump(mode="json")
         _set_stage(job_id, "b", "done")
 
-        # Clip to defeatbeta coverage (data-substituted run)
-        clipped = spec_with_critique.model_copy(update={
-            "start_date": date(1995, 1, 1),
-            "end_date": date(2020, 12, 31),
-        })
+        # Substitute / clip the spec window to the parquet panel — same logic
+        # as /api/backtest, so any paper (JT 1965-1989, Quantformer 2020-2023,
+        # …) gets a runnable engine window with a data_quality_flag.
+        clipped, _clip_note, window_info = _clip_spec_to_data_window(spec_with_critique)
+        bundle["window_info"] = window_info
         src = DefeatBetaYahooSource(cache_root=Path("data/cache/hf_datasets"))
         store = PointInTimeDataStore(
             sources={"defeatbeta_yahoo": src},
@@ -702,15 +730,14 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         try:
             _set_stage(job_id, "engine", "active")
             baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
+            baseline = _flag_window_substitution(baseline, window_info)
+            bundle["backtest"] = baseline.model_dump(mode="json")
             _set_stage(job_id, "engine", "done")
 
-            # Use a placeholder claim from the spec — full PaperClaim extraction
-            # is a separate concern; for live uploads we accept that D2/D3
-            # may have a less-anchored target. The pipeline still completes.
             placeholder_claim = PaperClaim(
                 claim_id=f"{paper_id}_baseline",
                 metric="long_short_monthly_return",
-                claimed_value=0.0,  # paper-claim extraction is Phase 5.5 work
+                claimed_value=0.0,
                 claimed_tstat=None,
                 claimed_units="fraction_per_month",
                 paper_location="N/A (live upload, placeholder claim)",
@@ -718,11 +745,12 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             )
 
             _set_stage(job_id, "d2", "active")
-            diagnose(
+            diagnosis = diagnose(
                 spec=clipped, baseline_result=baseline,
                 claim=placeholder_claim, store=store,
                 max_experiments=3, use_cache=True,
             )
+            bundle["diagnosis"] = diagnosis.model_dump(mode="json")
             _set_stage(job_id, "d2", "done")
 
             _set_stage(job_id, "battery", "active")
@@ -733,19 +761,30 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "battery", "done")
 
             _set_stage(job_id, "d3", "active")
-            judge(
+            judgment = judge(
                 scorecard=scorecard, baseline=baseline, claim=placeholder_claim,
                 use_cache=True,
             )
+            bundle["robustness"] = {
+                "scorecard": scorecard.model_dump(mode="json"),
+                "judgment": judgment.model_dump(mode="json"),
+            }
             _set_stage(job_id, "d3", "done")
         finally:
             src.close()
 
-        _finish_job(job_id, result={"paper_id": paper_id})
+        _finish_job(job_id, result=_sanitize_for_json(bundle))
 
     except BaseException as e:
         traceback.print_exc()
-        _finish_job(job_id, error=f"{type(e).__name__}: {e}")
+        # Persist whatever stages succeeded so the SPA can render the partial
+        # result (e.g. extracted spec + critique + mapping) even though the
+        # engine raised. Better than silently falling back to the JT report.
+        _finish_job(
+            job_id,
+            error=f"{type(e).__name__}: {e}",
+            result=_sanitize_for_json(bundle) if len(bundle) > 1 else None,
+        )
 
 
 @app.post("/api/pipeline/start")
