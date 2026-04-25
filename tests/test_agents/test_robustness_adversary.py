@@ -188,6 +188,37 @@ def test_judgment_schema_rejects_too_many_failure_modes():
         )
 
 
+def test_judge_falls_back_when_llm_raises_529():
+    """When the LLM raises (e.g. 529 overload), D3 must return a deterministic
+    fallback so downstream rendering stays unblocked. Mirrors D2's
+    `_fallback_diagnosis` policy."""
+    class _FakeOverload(Exception):
+        pass
+
+    with patch(
+        "src.agents.validation.robustness_adversary.call_claude",
+        side_effect=_FakeOverload("HTTP 529 overloaded_error"),
+    ):
+        out = judge(
+            scorecard=_scorecard(),
+            baseline=_baseline(),
+            claim=_claim(),
+            diagnosis=None,
+            use_cache=False,
+        )
+
+    assert isinstance(out, RobustnessJudgment)
+    assert out.confidence == "low"
+    assert out.signal_type == "not_evaluated"
+    assert out.gap_attribution == "unexplained"
+    assert out.implementable_alpha == 0.005  # baseline.mean_return
+    assert out.summary == "D3 LLM call failed; deterministic fallback values used."
+    assert out.fragility_signals == ("alpha breaks at 25 bps costs",)
+    assert out.primary_failure_modes == ("alpha breaks at 25 bps costs",)
+    assert out.surviving_count == 1
+    assert out.n_tests == 2
+
+
 def test_judgment_schema_rejects_invalid_gap_attribution():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):

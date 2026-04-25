@@ -33,7 +33,13 @@ def judge(
     diagnosis: DivergenceDiagnosis | None = None,
     use_cache: bool = True,
 ) -> RobustnessJudgment:
-    """Run D3 — produces a `RobustnessJudgment` from a scorecard."""
+    """Run D3 — produces a `RobustnessJudgment` from a scorecard.
+
+    On any LLM failure (529 overload, missing API key, validation error
+    after retries) returns a deterministic fallback judgment so the
+    pipeline still produces a structured result and the verdict strip
+    can render. Mirrors D2's `_fallback_diagnosis`.
+    """
     user_blob = {
         "scorecard": scorecard.model_dump(mode="json"),
         "baseline": {
@@ -47,10 +53,44 @@ def judge(
             diagnosis.model_dump(mode="json") if diagnosis is not None else None
         ),
     }
-    return call_claude(
-        model=MODEL,
-        system_prompt=load_prompt(PROMPT_NAME),
-        user_content=json.dumps(user_blob, indent=2, default=str),
-        response_schema=RobustnessJudgment,
-        use_cache=use_cache,
+    try:
+        return call_claude(
+            model=MODEL,
+            system_prompt=load_prompt(PROMPT_NAME),
+            user_content=json.dumps(user_blob, indent=2, default=str),
+            response_schema=RobustnessJudgment,
+            use_cache=use_cache,
+        )
+    except Exception as e:
+        return _fallback_judgment(scorecard, baseline, note=f"D3 LLM call failed: {e}")
+
+
+def _fallback_judgment(
+    scorecard: RobustnessScorecard,
+    baseline: BacktestResult,
+    note: str,
+) -> RobustnessJudgment:
+    """Deterministic fallback when the LLM is unavailable.
+
+    Surfaces the scorecard's own counts and fragility signals so the UI
+    has something to render. Confidence is pinned to "low" so consumers
+    treat the verdict as provisional.
+    """
+    return RobustnessJudgment(
+        surviving_count=scorecard.n_surviving,
+        n_tests=scorecard.n_tests,
+        fragility_signals=scorecard.fragility_signals,
+        implementable_alpha=baseline.mean_return,
+        implementable_alpha_basis=(
+            "fallback: baseline mean_return used because D3 LLM was unavailable"
+        ),
+        signal_type="not_evaluated",
+        capacity_estimate_usd=scorecard.capacity_estimate_usd,
+        primary_failure_modes=scorecard.fragility_signals[:5],
+        gap_attribution="unexplained",
+        gap_attribution_evidence=(
+            f"fallback: gap attribution skipped because D3 LLM was unavailable. {note}"
+        )[:600],
+        confidence="low",
+        summary="D3 LLM call failed; deterministic fallback values used.",
     )
