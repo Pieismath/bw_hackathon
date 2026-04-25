@@ -103,18 +103,24 @@ class SignalSpec(BaseModel):
                 "kind='past_return' requires lookback_months to be set"
             )
         if self.kind == "variance_ratio":
-            # VR needs enough history to estimate both variances; with monthly
-            # data we use overlapping 12-month returns, so we need at least
-            # 24 months (one full annual cycle plus 12 more for rolling).
+            # VR needs enough history to estimate both variances. The TRUE
+            # statistical minimum is ~36-60 months (the AQR paper uses an
+            # expanding 30+ year window). The validator's job here is just
+            # to keep obvious garbage out — A1 frequently extracts the
+            # paper's q=12 aggregation parameter into this field by
+            # mistake, so we accept >=12 here and let the engine layer's
+            # `_engine_kind_fallback` bump anything <24 to 60 with an
+            # honest data_quality_flag. Strictness here would crash the
+            # endpoint before fallback can fix the value.
             if self.lookback_months is None:
                 raise ValueError(
                     "kind='variance_ratio' requires lookback_months to be set"
                 )
-            if self.lookback_months < 24:
+            if self.lookback_months < 12:
                 raise ValueError(
-                    "kind='variance_ratio' requires lookback_months >= 24 "
-                    "(need at least one full annual cycle plus 12 months of "
-                    "rolling-12m returns to estimate the variance ratio)"
+                    "kind='variance_ratio' requires lookback_months >= 12 "
+                    "(at minimum one annual cycle to compute rolling-12m "
+                    "returns; the engine will auto-bump small values to 60)"
                 )
         return self
 

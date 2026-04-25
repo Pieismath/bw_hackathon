@@ -4,7 +4,7 @@ Multi-agent system that takes a quantitative finance research paper plus data an
 
 ## Status
 
-**Phases 1–4 complete.** Phase 1 delivers the canonical backtest engine, point-in-time data store, and structured specs. Phase 2 adds PDF parsing and the A1 (methodology extractor) + A2 (quote verifier) + A3 (adversarial reviewer) agent layer. Phase 3 adds D1 (result comparator) and D2 (divergence diagnostician — LLM-guided spec mutations validated by engine reruns). Phase 4 adds the robustness battery (six stress-test families) and D3 (robustness adversary → implementability verdict, signal-type classification, gap attribution). A FastAPI + SPA MVP at `app/` renders every artifact in a dark-mode research-lab UI including Robustness and Diagnosis tabs.
+**Phases 1–4 complete.** Phase 1 delivers the canonical backtest engine, point-in-time data store, and structured specs. Phase 2 adds PDF parsing and the A1 (methodology extractor) + A2 (quote verifier) + A3 (adversarial reviewer) agent layer. Phase 3 adds D1 (result comparator) and D2 (divergence diagnostician — LLM-guided spec mutations validated by engine reruns). Phase 4 adds the robustness battery (six stress-test families) and D3 (robustness adversary → implementability verdict, signal-type classification, gap attribution). A FastAPI + SPA MVP at `app/` renders every artifact in a Bridgewater-style intelligence-briefing terminal (institutional dark mode, brick-red and muted-gold accents, serif headers + sans-serif data, no AI / snake_case identifiers leaked into the surface) including Robustness and Diagnosis tabs.
 
 ## Quick start
 
@@ -114,7 +114,7 @@ Phase 5 (report synthesizer E1, tradeability scorecard, paper-vs-replication dif
 
 ## MVP web UI
 
-The `app/` package wraps the Phase 1/2 surface area in a single-page dark-mode UI:
+The `app/` package wraps the Phase 1/2 surface area in a single-page **Bridgewater Intelligence Briefing** UI — institutional research-terminal aesthetic on a deep-obsidian background, brick-red `#8b231c` and muted-gold `#b89762` accents, hairline `#2d333b` borders, sharp 0–2 px corners, Georgia serif headers / Inter sans-serif tabular data, no glow / gradient / rounded-pill effects. A `terminologyMap` in `app/static/app.js` translates every snake_case schema field into professional finance prose (`monthly_return` → "Monthly Excess Return", `t_stat` → "t-statistic (Newey-West)", etc.) before it reaches the DOM, and a discrete Bridgewater wordmark sits bottom-right as an attribution badge.
 
 - **Run config panel** — overrides `universe.min_price`, sample window, JT grid, weighting, buckets, costs, execution lag; live-updates the Spec tab.
 - **Overview** — PDF upload, papers list, KPI grid, swarm-telemetry log.

@@ -1165,6 +1165,24 @@ function applyBundle(bundle) {
   // outputs/jt_*.json report). Falls back gracefully when only some stages
   // have completed (paper_title/spec available but no backtest yet).
   renderVerdictStrip(buildLiveReport(bundle));
+  // A bundle that arrives in one shot (demo / cached postfix run / direct
+  // /api/report fetch) skips the per-stage setStage() chain, so the stepper
+  // buttons stay disabled and the user can't click into Replication / Stress
+  // Tests / etc. Mark every stage that has data on the bundle as done so the
+  // stepper acts as nav from the moment the bundle paints. The Backtest tab
+  // (and its equity chart) is then reachable via the "Replication" step.
+  const bundleStageDone = {
+    parse: true,
+    a1: !!bundle.verified_spec,
+    a2: !!bundle.verified_spec,
+    a3: !!bundle.critique,
+    b: !!bundle.verified_spec,
+    engine: !!bundle.backtest,
+    d2: !!bundle.diagnosis,
+    battery: !!bundle.robustness,
+    d3: !!(bundle.robustness && bundle.robustness.judgment),
+  };
+  Object.entries(bundleStageDone).forEach(([stage, done]) => { if (done) setStage(stage, 'done'); });
   setStatus('Ready — bundle loaded', 'green');
 }
 
@@ -3483,7 +3501,13 @@ function fmtMoney(x) {
   return `$${Math.round(x)}`;
 }
 
-async function loadPhase5Report() {
+// Fetch the Phase 5 JT report and stash it on `phase5.report` for later
+// callers (the DBT toggle, the "Load briefing" button). When `render`
+// is true the verdict strip is also populated; when false the strip
+// stays in its dash-placeholder state. Bootstrap calls with render=false
+// so a hard refresh shows blank values until the user explicitly opts
+// in via "Load briefing" or by uploading a paper.
+async function loadPhase5Report({ render = true } = {}) {
   try {
     const r = await fetch('/api/report');
     if (!r.ok) {
@@ -3492,14 +3516,11 @@ async function loadPhase5Report() {
     }
     const data = await r.json();
     phase5.report = data;
-    renderVerdictStrip(data);
-    // renderDiagnosisTab / renderRobustnessTab target Phase-5-only IDs that
-    // were dropped from index.html when we kept our live Robustness/Diagnosis
-    // tab bodies during the merge. Calling them throws null-textContent.
-    // Skip them — our live tabs render the same data via /api/robustness
-    // and /api/diagnose anyway.
-    renderDbtPanel(data);
-    log('SYS', `Phase 5 report loaded: ${data.headline?.paper_id ?? '—'}`, 'sys');
+    if (render) {
+      renderVerdictStrip(data);
+      renderDbtPanel(data);
+      log('SYS', `Phase 5 report loaded: ${data.headline?.paper_id ?? '—'}`, 'sys');
+    }
     return data;
   } catch (e) {
     log('SYS', `Failed to load /api/report: ${e.message}`, 'err');
@@ -3522,11 +3543,22 @@ function renderVerdictStrip(report) {
   // Left column — paper claim. Guard against the impossible-but-emitted
   // (value==0 with non-zero t-stat) case: render as "not extracted" so
   // the verdict strip doesn't claim "+0.000%/mo, t=+2.67".
+  // Statistical-test papers (variance-ratio class — Lo-MacKinlay,
+  // Poterba-Summers, AQR streaks) genuinely don't have a tradeable L/S
+  // claim. Show a short "VR statistic" tag instead of "—/mo".
   const c = h.claim;
   const claimSuspicious = c.value === 0 && c.tstat != null && c.tstat !== 0;
-  $('#vs-claim-value').textContent = claimSuspicious ? 'not extracted' : (fmtPctSigned(c.value, 3) + '/mo');
-  $('#vs-claim-tstat').textContent = claimSuspicious ? '' : fmtTstat(c.tstat);
-  $('#vs-claim-loc').textContent = c.paper_location || '';
+  const noClaim = c.value == null || claimSuspicious;
+  const statOnlyClaim = noClaim && detectStatisticalOnlyPaper(state.bundle);
+  if (statOnlyClaim) {
+    $('#vs-claim-value').textContent = 'VR statistic';
+    $('#vs-claim-tstat').textContent = '';
+    $('#vs-claim-loc').textContent = 'Statistical test — no L/S claim';
+  } else {
+    $('#vs-claim-value').textContent = claimSuspicious ? 'not extracted' : (fmtPctSigned(c.value, 3) + '/mo');
+    $('#vs-claim-tstat').textContent = claimSuspicious ? '' : fmtTstat(c.tstat);
+    $('#vs-claim-loc').textContent = c.paper_location || '';
+  }
 
   // Right column — implementable verdict
   const v = h.verdict;
@@ -3595,13 +3627,22 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
     const cv = $('#vs-claim-value');
     const ct = $('#vs-claim-tstat');
     const cl = $('#vs-claim-loc');
-    // Same self-consistency guard as renderVerdictStrip: monthly_return==0
-    // with non-zero tstat is mathematically impossible — A1 emitted a
-    // placeholder zero. Show "not extracted" rather than the phantom number.
+    // Self-consistency guard (monthly_return==0 with non-zero tstat is
+    // mathematically impossible — A1 placeholder zero) AND statistical-
+    // test paper-class shortcut: when the paper genuinely has no L/S
+    // claim and uses variance_ratio, show a short tag instead of dashes.
     const suspicious = claim.monthly_return === 0 && claim.tstat != null && claim.tstat !== 0;
-    if (cv) cv.textContent = suspicious ? 'not extracted' : (fmtPctSigned(claim.monthly_return, 3) + '/mo');
-    if (ct) ct.textContent = suspicious ? '' : fmtTstat(claim.tstat);
-    if (cl) cl.textContent = claim.paper_location || claim.window || '';
+    const noClaim = claim.monthly_return == null || suspicious;
+    const statOnly = noClaim && detectStatisticalOnlyPaper(state.bundle);
+    if (statOnly) {
+      if (cv) cv.textContent = 'VR statistic';
+      if (ct) ct.textContent = '';
+      if (cl) cl.textContent = 'Statistical test — no L/S claim';
+    } else {
+      if (cv) cv.textContent = suspicious ? 'not extracted' : (fmtPctSigned(claim.monthly_return, 3) + '/mo');
+      if (ct) ct.textContent = suspicious ? '' : fmtTstat(claim.tstat);
+      if (cl) cl.textContent = claim.paper_location || claim.window || '';
+    }
   }
 
   // Implementable α + tag from D3 judgment, falling back to the scorecard
@@ -4240,4 +4281,10 @@ function wireDemoButtonStepperHook() {
 setupDbtPanelToggle();
 setupVerdictWhy();
 wireDemoButtonStepperHook();
-loadPhase5Report();
+// Blank the strip with dash placeholders BEFORE the silent report fetch
+// kicks off — guarantees a fresh refresh never momentarily flashes the
+// previous JT numbers.
+resetVerdictStrip();
+// Fetch the report in the background but do NOT auto-render the strip.
+// The user explicitly opts in via "Load briefing" or by uploading a paper.
+loadPhase5Report({ render: false });

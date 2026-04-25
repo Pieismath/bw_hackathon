@@ -66,8 +66,10 @@
   </button>
 </div>
 
-<!-- Phase 5 — Headline verdict strip (above tabs, always visible once loaded) -->
-<section class="verdict-strip" id="verdict-strip" hidden>
+<!-- CIO summary strip — always visible. Value cells hold dashes until a
+     bundle loads; resetVerdictStrip() returns to the dash-placeholder
+     state instead of hiding the whole strip. -->
+<section class="verdict-strip" id="verdict-strip">
   <div class="vs-header">
     <div class="vs-paper">
       <h2 id="vs-paper-title">—</h2>

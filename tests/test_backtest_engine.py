@@ -348,13 +348,21 @@ def test_variance_ratio_empty_when_insufficient_history():
 
 
 def test_variance_ratio_spec_validator_rejects_short_lookback():
-    """Spec validator floors lookback at 24 — anything shorter would not
-    leave enough room for both monthly and rolling-12m variance."""
-    with pytest.raises(ValueError, match="lookback_months >= 24"):
+    """Spec validator floors lookback at 12 (one annual cycle minimum) —
+    smaller values are rejected. Values between 12 and 24 are accepted at
+    the spec layer; the engine's _engine_kind_fallback bumps them to 60
+    with an honest data_quality_flag."""
+    with pytest.raises(ValueError, match="lookback_months >= 12"):
         SignalSpec(
             name="vr", formula="f", inputs=("close",),
-            kind="variance_ratio", lookback_months=12,
+            kind="variance_ratio", lookback_months=6,
         )
+    # 12 should now pass spec validation (engine layer will bump it).
+    spec = SignalSpec(
+        name="vr", formula="f", inputs=("close",),
+        kind="variance_ratio", lookback_months=12,
+    )
+    assert spec.lookback_months == 12
 
 
 # ---------------------------------------------------------------------------
