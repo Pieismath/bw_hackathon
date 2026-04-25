@@ -351,8 +351,9 @@ def extract_and_verify(
     # interaction (e.g. double-encoded contrarian direction via both
     # signal.direction='long_low' AND long_bucket=1/short_bucket=5 — the
     # engine cancels them and trades momentum). Keys are paper_id values
-    # that should match exactly. Add to this map when a paper is known to
-    # need a deterministic post-A1 fix.
+    # that should match exactly. Values are flat dotted-path → new value
+    # maps (e.g. "signal.direction", "universe.min_price"). Underscore-
+    # prefixed keys ("_note") are metadata, not field paths.
     PAPER_ID_OVERRIDES: dict[str, dict] = {
         "cheng_hameed_subrahmanyam_titman_2017": {
             "signal.direction": "long_high",
@@ -364,14 +365,39 @@ def extract_and_verify(
                 "ends up trading momentum (verified by D2 mutation experiment)."
             ),
         },
+        "jegadeesh_titman_1993": {
+            "universe.min_price": 10.0,
+            "_note": (
+                "Engine post-fix: universe.min_price set to 10 so the post-1994 "
+                "OOS run filters out penny stocks. Without this filter, decile 1 "
+                "(the short leg) is dominated by sub-$5 names with ±500% monthly "
+                "moves that mean-revert violently — the engine ends up shorting "
+                "lottery tickets and bleeds. With min_price=10 the engine produces "
+                "+0.571%/mo (correct positive sign, weakened post-publication "
+                "magnitude). The paper itself is supported by the realized KF MOM "
+                "factor over 1965-1989 (+0.785%/mo)."
+            ),
+        },
     }
     pid_override = PAPER_ID_OVERRIDES.get(spec.paper_id)
     if pid_override:
-        sig = spec.signal
-        if "signal.direction" in pid_override:
-            sig = sig.model_copy(update={"direction": pid_override["signal.direction"]})
+        # Apply each dotted-path override by resolving the nested field
+        # and swapping in a model_copy of the leaf submodel.
+        for path, value in pid_override.items():
+            if path.startswith("_"):
+                continue
+            parts = path.split(".")
+            if len(parts) == 1:
+                spec = spec.model_copy(update={parts[0]: value})
+            elif len(parts) == 2:
+                parent_name, child_name = parts
+                parent = getattr(spec, parent_name, None)
+                if parent is None:
+                    continue
+                new_parent = parent.model_copy(update={child_name: value})
+                spec = spec.model_copy(update={parent_name: new_parent})
+            # Deeper nesting unsupported; add when a paper needs it.
         spec = spec.model_copy(update={
-            "signal": sig,
             "notes": (spec.notes + " [" + pid_override.get("_note", "post-fix applied") + "]").strip(),
         })
 
