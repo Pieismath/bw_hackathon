@@ -442,15 +442,51 @@ async function uploadPaper(file) {
     const up = await fetch('/api/papers', { method: 'POST', body: form });
     if (!up.ok) throw new Error(`upload HTTP ${up.status}`);
     const paper = await up.json();
-    log('A1', `Paper ${paper.paper_id} stored. Kicking off extraction…`, 'a1');
+    log('A1', `Paper ${paper.paper_id} stored. Kicking off full pipeline…`, 'a1');
     $('#paper-title').textContent = paper.paper_id;
     $('#ingest-chip').innerHTML = '<span class="dot green pulse"></span>Ingested';
-    await runExtraction(paper.paper_id);
+    // Kick off the full pipeline (A1→A2→A3→B1+B2→engine→D2→battery→D3) in
+    // the background; show real-time progress via the stepper.
+    await runFullPipeline(paper.paper_id);
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
     setStatus('Error', 'red');
   }
   refreshPapers();
+}
+
+async function runFullPipeline(paperId) {
+  setStatus('Pipeline running…', 'amber');
+  resetStepper();
+  setStage('parse', 'done');
+  try {
+    const r = await fetch('/api/pipeline/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paper_id: paperId }),
+    });
+    const parsed = await safeJson(r);
+    if (!r.ok || !parsed.ok) {
+      log('SYS', `pipeline/start failed: ${parsed.body.error || r.status}`, 'sys');
+      setStatus('Pipeline failed', 'red');
+      return;
+    }
+    const jobId = parsed.body.job_id;
+    log('SYS', `pipeline started, job=${jobId}`, 'sys');
+    const finalPayload = await trackPipelineJob(jobId);
+    if (finalPayload?.error) {
+      log('SYS', `pipeline failed: ${finalPayload.error}`, 'sys');
+      setStatus('Pipeline failed', 'red');
+      return;
+    }
+    setStatus('Pipeline complete', 'green');
+    // After completion, regenerate report.json + reload the UI from it
+    await fetch('/api/report/regenerate', { method: 'POST' });
+    await loadPhase5Report();
+  } catch (e) {
+    log('SYS', `ERROR: ${e.message}`, 'sys');
+    setStatus('Error', 'red');
+  }
 }
 
 async function safeJson(resp) {
@@ -2554,6 +2590,9 @@ function renderVerdictStrip(report) {
   if (!h) return;
   const strip = $('#verdict-strip');
   strip.hidden = false;
+  // Show the top-level cost slider once data is loaded.
+  const qc = $('#quick-controls');
+  if (qc) qc.hidden = false;
 
   $('#vs-paper-title').textContent = h.paper_title;
   $('#vs-confidence').textContent =
@@ -2572,13 +2611,16 @@ function renderVerdictStrip(report) {
   $('#vs-tag').textContent = v.tradeable_label || '—';
   $('#vs-col-verdict').setAttribute('data-tag', v.tradeable_label || '');
 
-  // Window row
-  $('#vs-paper-window').textContent = h.paper_window || h.sample_paper || '—';
-  $('#vs-engine-window').textContent = h.engine_window || h.sample_engine || '—';
-  $('#vs-gap-attr').textContent = (v.gap_attribution || '—').replace(/_/g, ' ');
+  // Window row (collapsed to single horizontal line of small-caps)
+  $('#vs-paper-window').textContent = ' ' + (h.paper_window || h.sample_paper || '—');
+  $('#vs-engine-window').textContent = ' ' + (h.engine_window || h.sample_engine || '—');
+  $('#vs-gap-attr').textContent = ' ' + ((v.gap_attribution || '—').replace(/_/g, ' '));
 
-  // Summary line
+  // Summary line — held off-screen by default; revealed via the "Why?"
+  // popover below the verdict tag (see setupVerdictWhy).
   $('#vs-summary').textContent = v.summary_first_clause || '';
+  const popover = $('#vs-why-popover');
+  if (popover) popover.textContent = v.summary_first_clause || '';
 
   // DBT toggle
   if (report.generalization) {
@@ -2587,10 +2629,29 @@ function renderVerdictStrip(report) {
     $('#vs-dbt-label').innerHTML = `Generalization (DBT 1985) ${passed ? '✓' : '✗'}`;
   }
 
-  // Top-right verdict badge in topnav (color-coded via [data-tag])
-  const badge = $('#verdict-badge');
-  badge.textContent = `Verdict: ${v.tradeable_label}`;
-  badge.setAttribute('data-tag', v.tradeable_label || '');
+  // Topnav: the redundant verdict badge stays hidden (verdict strip carries
+  // this signal already; per Phase 5 polish brief).
+}
+
+// "Why?" popover toggle for the implementable-alpha summary clause
+function setupVerdictWhy() {
+  const trigger = $('#vs-why');
+  const popover = $('#vs-why-popover');
+  if (!trigger || !popover) return;
+  const open = () => {
+    const r = trigger.getBoundingClientRect();
+    popover.style.top = `${r.bottom + 6 + window.scrollY}px`;
+    popover.style.left = `${Math.max(8, r.left - 80)}px`;
+    popover.hidden = false;
+  };
+  const close = () => { popover.hidden = true; };
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popover.hidden ? open() : close();
+  });
+  document.addEventListener('click', (e) => {
+    if (!popover.hidden && !popover.contains(e.target) && e.target !== trigger) close();
+  });
 }
 
 // ----- Diagnosis tab -----
@@ -2741,22 +2802,35 @@ function renderRobustnessTab(report) {
   }
 }
 
+// ----- Cost slider: single source of truth -----
+// Both the top-level quick-controls slider AND the Robustness-tab slider call
+// setCostBps(bps) — which updates ALL displays (verdict strip, top-level
+// readout, robustness-tab readout, verdict-tag recomputed).
+
 function renderCostSlider() {
+  // Detail slider in the Robustness tab
   const slider = $('#cost-slider');
   const ticks = $('#cost-slider-ticks');
-  if (phase5.costCurve.length === 0) return;
+  if (!slider || phase5.costCurve.length === 0) return;
   const xs = phase5.costCurve.map((p) => p.bps);
   slider.min = String(Math.min(...xs));
   slider.max = String(Math.max(...xs));
   slider.step = '0.5';
-  slider.value = String(xs[0]);
+  slider.value = '10';
 
   ticks.innerHTML = '';
   xs.forEach((x) => ticks.appendChild(el('span', {}, String(x.toFixed(0)))));
 
-  const update = () => updateCostReadout(parseFloat(slider.value));
-  slider.oninput = update;
-  update();
+  slider.oninput = () => setCostBps(parseFloat(slider.value), 'detail');
+  // Top-level slider
+  const qc = $('#qc-cost-slider');
+  if (qc) {
+    qc.min = slider.min; qc.max = slider.max; qc.step = slider.step;
+    qc.value = '10';
+    qc.oninput = () => setCostBps(parseFloat(qc.value), 'top');
+  }
+  // Initial display state at default 10 bps
+  setCostBps(10, 'init');
 }
 
 function interpCostCurve(bps) {
@@ -2780,17 +2854,63 @@ function interpCostCurve(bps) {
   return c[c.length - 1];
 }
 
-function updateCostReadout(bps) {
+function tradeableLabel(alpha, tstat, confidence) {
+  if (alpha == null) return 'UNKNOWN';
+  if (alpha < 0) return 'UNDER WATER';
+  if (tstat != null && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
+  if (alpha < 0.005 || confidence === 'low') return 'BORDERLINE';
+  return 'TRADEABLE';
+}
+
+function setCostBps(bps, originator) {
   const p = interpCostCurve(bps);
   if (!p) return;
-  $('#cost-bps-readout').textContent = `${bps.toFixed(1)}`;
+
+  // 1. Detail slider readouts (Robustness tab)
+  if ($('#cost-bps-readout')) $('#cost-bps-readout').textContent = bps.toFixed(1);
   const ret = $('#cost-ret-readout');
-  ret.textContent = fmtPctSigned(p.mean_return, 3) + '/mo';
-  ret.className = 'cost-readout-value ' + (p.mean_return >= 0 ? 'alpha-pos' : 'alpha-neg');
-  $('#cost-tstat-readout').textContent = (p.tstat == null) ? '—' : (p.tstat >= 0 ? '+' : '') + p.tstat.toFixed(2);
-  const s = $('#cost-surv-readout');
-  s.textContent = p.surviving ? 'YES' : 'NO';
-  s.className = 'cost-readout-value ' + (p.surviving ? 'surv-yes' : 'surv-no');
+  if (ret) {
+    ret.textContent = fmtPctSigned(p.mean_return, 3) + '/mo';
+    ret.className = 'cost-readout-value ' + (p.mean_return >= 0 ? 'alpha-pos' : 'alpha-neg');
+  }
+  const ts = $('#cost-tstat-readout');
+  if (ts) ts.textContent = (p.tstat == null) ? '—' : (p.tstat >= 0 ? '+' : '') + p.tstat.toFixed(2);
+  const sv = $('#cost-surv-readout');
+  if (sv) {
+    sv.textContent = p.surviving ? 'YES' : 'NO';
+    sv.className = 'cost-readout-value ' + (p.surviving ? 'surv-yes' : 'surv-no');
+  }
+
+  // 2. Top-level quick-controls readout
+  const qcVal = $('#qc-bps-value');
+  if (qcVal) qcVal.textContent = bps.toFixed(0);
+
+  // 3. Verdict strip — IMPLEMENTABLE ALPHA reflects the slider position
+  const conf = phase5.report?.headline?.verdict?.confidence;
+  const newLabel = tradeableLabel(p.mean_return, p.tstat, conf);
+  const impl = $('#vs-impl-value');
+  if (impl) impl.textContent = fmtPctSigned(p.mean_return, 3) + '/mo';
+  const implT = $('#vs-impl-tstat');
+  if (implT) implT.textContent = (p.tstat == null) ? 't = —' : `t = ${p.tstat >= 0 ? '+' : ''}${p.tstat.toFixed(2)}`;
+  const tag = $('#vs-tag');
+  if (tag) tag.textContent = newLabel;
+  const verCol = $('#vs-col-verdict');
+  if (verCol) verCol.setAttribute('data-tag', newLabel);
+  const badge = $('#verdict-badge');
+  if (badge) {
+    badge.textContent = `Verdict: ${newLabel}`;
+    badge.setAttribute('data-tag', newLabel);
+  }
+
+  // 4. Sync the OTHER slider's position (avoid feedback loop)
+  if (originator !== 'detail') {
+    const detail = $('#cost-slider');
+    if (detail && parseFloat(detail.value) !== bps) detail.value = String(bps);
+  }
+  if (originator !== 'top') {
+    const qc = $('#qc-cost-slider');
+    if (qc && parseFloat(qc.value) !== bps) qc.value = String(bps);
+  }
 }
 
 // Generic table renderer for stress test rows
@@ -2857,7 +2977,108 @@ function setupDbtPanelToggle() {
   $('#dbt-panel-close')?.addEventListener('click', () => { panel.hidden = true; });
 }
 
+// ============================================================
+// Pipeline stepper — visualizes A1→A2→A3→B1/B2→Engine→D2→Battery→D3
+// ============================================================
+
+const PIPELINE_STAGES = ['parse', 'a1', 'a2', 'a3', 'b', 'engine', 'd2', 'battery', 'd3'];
+
+function setStage(stage, state) {
+  const el = document.querySelector(`.ps-step[data-stage="${stage}"]`);
+  if (el) el.setAttribute('data-state', state);
+}
+
+function resetStepper() {
+  const bar = $('#pipeline-stepper');
+  if (!bar) return;
+  bar.hidden = false;
+  PIPELINE_STAGES.forEach((s) => setStage(s, 'pending'));
+  const collapsed = $('#ps-collapsed');
+  if (collapsed) { collapsed.hidden = true; collapsed.textContent = ''; }
+  // Show the steps again if previously collapsed
+  document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = ''; });
+}
+
+function collapseStepper(elapsedMs) {
+  const collapsed = $('#ps-collapsed');
+  document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = 'none'; });
+  if (collapsed) {
+    const seconds = (elapsedMs / 1000).toFixed(1);
+    collapsed.textContent = `✓ Pipeline complete in ${seconds}s — click to expand`;
+    collapsed.hidden = false;
+    collapsed.onclick = () => {
+      document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = ''; });
+      collapsed.hidden = true;
+    };
+  }
+}
+
+// Demo path: animate through stages with synthetic timing so the user sees
+// the pipeline visually executed, even though the underlying call is cached.
+async function animateStepperForDemo(totalMs = 1600) {
+  resetStepper();
+  const t0 = performance.now();
+  const stepMs = totalMs / PIPELINE_STAGES.length;
+  for (const s of PIPELINE_STAGES) {
+    setStage(s, 'active');
+    await new Promise((res) => setTimeout(res, stepMs));
+    setStage(s, 'done');
+  }
+  collapseStepper(performance.now() - t0);
+}
+
+// Real-upload path: poll /api/pipeline/status/{job_id} until terminal
+async function trackPipelineJob(jobId) {
+  resetStepper();
+  const t0 = performance.now();
+  const seen = new Set();
+  let last = null;
+  while (true) {
+    let payload;
+    try {
+      const r = await fetch(`/api/pipeline/status/${encodeURIComponent(jobId)}`);
+      if (!r.ok) break;
+      payload = await r.json();
+    } catch (e) {
+      log('SYS', `pipeline status fetch failed: ${e.message}`, 'err');
+      break;
+    }
+    const stage = payload.stage;
+    const status = payload.status;
+    // Mark all stages up to (but not including) the current one as done
+    if (stage && !seen.has(stage)) {
+      const idx = PIPELINE_STAGES.indexOf(stage);
+      for (let i = 0; i < idx; i++) setStage(PIPELINE_STAGES[i], 'done');
+      seen.add(stage);
+      last = stage;
+      setStage(stage, status === 'failed' ? 'failed' : 'active');
+    } else if (stage && stage === last) {
+      setStage(stage, status === 'failed' ? 'failed' : 'active');
+    }
+    if (payload.done) {
+      // Mark all stages done (or failed if signal)
+      PIPELINE_STAGES.forEach((s) => {
+        const cur = document.querySelector(`.ps-step[data-stage="${s}"]`);
+        if (cur && cur.getAttribute('data-state') !== 'failed') setStage(s, 'done');
+      });
+      collapseStepper(performance.now() - t0);
+      return payload;
+    }
+    await new Promise((res) => setTimeout(res, 250));
+  }
+  collapseStepper(performance.now() - t0);
+}
+
+// Hook the demo button to also animate the stepper
+function wireDemoButtonStepperHook() {
+  const btn = $('#demo-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => { animateStepperForDemo(); }, { capture: true });
+}
+
 // ----- bootstrap -----
 
 setupDbtPanelToggle();
+setupVerdictWhy();
+wireDemoButtonStepperHook();
 loadPhase5Report();

@@ -15,17 +15,31 @@
 <nav class="topnav">
   <div class="brand">Paper Replication Machine</div>
   <div class="topnav-right">
-    <span class="verdict" id="verdict-badge">Verdict: —</span>
-    <button class="btn-ghost" id="reset-btn">
-      <span class="material-symbols-outlined" style="font-size:16px;">restart_alt</span>
+    <span class="verdict" id="verdict-badge" hidden></span>
+    <button class="btn-ghost" id="reset-btn" title="Reset">
+      <span class="material-symbols-outlined" style="font-size:14px;">restart_alt</span>
       Reset
     </button>
-    <button class="btn-primary" id="demo-btn">
-      <span class="material-symbols-outlined" style="font-size:16px;">auto_awesome</span>
+    <button class="btn-ghost" id="demo-btn">
+      <span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span>
       Load demo
     </button>
   </div>
 </nav>
+
+<!-- Phase 5 polish — pipeline progress stepper -->
+<div class="pipeline-stepper" id="pipeline-stepper" hidden>
+  <span class="ps-step" data-stage="parse" data-state="pending"><span class="ps-icon"></span>PDF</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a1" data-state="pending"><span class="ps-icon"></span>A1 Extract</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a2" data-state="pending"><span class="ps-icon"></span>A2 Verify</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a3" data-state="pending"><span class="ps-icon"></span>A3 Review</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="b" data-state="pending"><span class="ps-icon"></span>B1/B2 Map</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="engine" data-state="pending"><span class="ps-icon"></span>Engine</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="d2" data-state="pending"><span class="ps-icon"></span>D2 Diagnose</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="battery" data-state="pending"><span class="ps-icon"></span>Battery</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="d3" data-state="pending"><span class="ps-icon"></span>D3 Verdict</span>
+  <span class="ps-collapsed" id="ps-collapsed" hidden></span>
+</div>
 
 <!-- Phase 5 — Headline verdict strip (above tabs, always visible once loaded) -->
 <section class="verdict-strip" id="verdict-strip" hidden>
@@ -35,33 +49,49 @@
       <span class="vs-confidence" id="vs-confidence">confidence: —</span>
     </div>
     <button class="vs-dbt-btn" id="vs-dbt-toggle" hidden type="button">
-      <span class="material-symbols-outlined" style="font-size:18px;">science</span>
+      <span class="material-symbols-outlined" style="font-size:16px;">science</span>
       <span id="vs-dbt-label">Generalization (DBT 1985)</span>
     </button>
   </div>
   <div class="vs-columns">
     <div class="vs-col vs-col-claim">
       <div class="vs-label">PAPER CLAIMED</div>
-      <div class="vs-value" id="vs-claim-value">—</div>
-      <div class="vs-tstat" id="vs-claim-tstat">—</div>
+      <div>
+        <span class="vs-value" id="vs-claim-value">—</span>
+        <span class="vs-tstat" id="vs-claim-tstat">—</span>
+      </div>
       <div class="vs-loc" id="vs-claim-loc">—</div>
     </div>
     <div class="vs-divider" aria-hidden="true">vs</div>
     <div class="vs-col vs-col-verdict" id="vs-col-verdict">
       <div class="vs-label">IMPLEMENTABLE ALPHA</div>
-      <div class="vs-value" id="vs-impl-value">—</div>
-      <div class="vs-tstat" id="vs-impl-tstat">—</div>
-      <div class="vs-tag-row"><span class="vs-tag" id="vs-tag">—</span></div>
+      <div>
+        <span class="vs-value" id="vs-impl-value">—</span>
+        <span class="vs-tstat" id="vs-impl-tstat">—</span>
+        <span class="vs-tag-row"><span class="vs-tag" id="vs-tag">—</span></span>
+        <span class="vs-why" id="vs-why" tabindex="0" role="button">Why?</span>
+      </div>
     </div>
   </div>
   <div class="vs-windows">
-    <span class="vs-w-item"><span class="vs-w-label">Paper sample</span> <span id="vs-paper-window">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Paper</span><span id="vs-paper-window">—</span></span>
     <span class="vs-w-sep"></span>
-    <span class="vs-w-item"><span class="vs-w-label">Engine measurement</span> <span id="vs-engine-window">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Engine</span><span id="vs-engine-window">—</span></span>
     <span class="vs-w-sep"></span>
-    <span class="vs-w-item"><span class="vs-w-label">Gap attribution</span> <span id="vs-gap-attr">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Gap</span><span id="vs-gap-attr">—</span></span>
   </div>
   <div class="vs-summary" id="vs-summary"></div>
+  <div class="vs-why-popover" id="vs-why-popover" hidden></div>
+</section>
+
+<!-- Phase 5 polish — top-level quick-controls strip (cost slider) -->
+<section class="quick-controls" id="quick-controls" hidden>
+  <span class="qc-label">What if costs were</span>
+  <div class="qc-slider-wrap">
+    <input type="range" id="qc-cost-slider" class="qc-slider" min="0" max="50" step="0.5" value="10" />
+    <span class="qc-bps-readout"><span id="qc-bps-value">10</span> bps</span>
+  </div>
+  <span class="qc-hint">Drag to see how transaction costs erode the implementable alpha →</span>
 </section>
 
 <!-- DBT side panel (slides in from right when triggered) -->

@@ -610,6 +610,177 @@ def diagnose_endpoint(body: DiagnoseBody):
             },
         )
 # ---------------------------------------------------------------------------
+# Phase 5 polish — pipeline job tracking
+#   /api/pipeline/start   POST {paper_id} → {job_id}
+#   /api/pipeline/status/{job_id}  GET → {stage, status, done, error?}
+# Frontend stepper polls /status until done. The pipeline runs in a worker
+# thread; the registry lives in-process (single uvicorn worker).
+# ---------------------------------------------------------------------------
+
+import threading
+import uuid
+from datetime import datetime, timezone
+
+PIPELINE_JOBS: dict[str, dict] = {}
+PIPELINE_LOCK = threading.Lock()
+
+
+def _set_stage(job_id: str, stage: str, status: str = "active") -> None:
+    with PIPELINE_LOCK:
+        if job_id not in PIPELINE_JOBS:
+            return
+        PIPELINE_JOBS[job_id].update(
+            stage=stage,
+            status=status,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _finish_job(job_id: str, *, error: str | None = None, result: dict | None = None) -> None:
+    with PIPELINE_LOCK:
+        if job_id not in PIPELINE_JOBS:
+            return
+        PIPELINE_JOBS[job_id].update(
+            done=True,
+            status="failed" if error else "succeeded",
+            error=error,
+            result=result,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _run_pipeline(job_id: str, paper_id: str) -> None:
+    """Background worker: PDF → A1 → A2 → A3 → B1+B2 → engine → D2 → battery → D3.
+
+    Every agent stage transition is reflected in PIPELINE_JOBS[job_id]['stage']
+    so the frontend stepper updates in real time. Each stage that fails marks
+    the job done with the error message and stops; downstream stages are
+    skipped.
+    """
+    try:
+        from src.agents.extraction import (
+            extract_and_verify, fold_high_severity_into_spec, review,
+        )
+        from src.agents.implementation import map_data, verify_mapping
+        from src.agents.validation import diagnose, judge
+        from src.agents.validation.divergence_diagnostician import run_backtest_cached
+        from src.data import DefeatBetaYahooSource, PointInTimeDataStore
+        from src.robustness import run_battery
+        from src.specs import PaperClaim, SupportingQuote
+        from datetime import date
+
+        _set_stage(job_id, "parse", "active")
+        pdf = _load_pdf(paper_id)
+
+        _set_stage(job_id, "a1", "active")
+        verified = extract_and_verify(pdf, max_retries=3, use_cache=True)
+        spec = verified.spec
+        _set_stage(job_id, "a1", "done")
+
+        _set_stage(job_id, "a2", "done")  # A2 is folded into extract_and_verify
+
+        _set_stage(job_id, "a3", "active")
+        critique = review(pdf, spec, verification_report=verified.report, use_cache=True)
+        spec_with_critique = fold_high_severity_into_spec(spec, critique)
+        _set_stage(job_id, "a3", "done")
+
+        _set_stage(job_id, "b", "active")
+        mapping = map_data(spec_with_critique, use_cache=True)
+        verify_mapping(mapping, spec_with_critique, use_llm_check=True, use_cache=True)
+        _set_stage(job_id, "b", "done")
+
+        # Clip to defeatbeta coverage (data-substituted run)
+        clipped = spec_with_critique.model_copy(update={
+            "start_date": date(1995, 1, 1),
+            "end_date": date(2020, 12, 31),
+        })
+        src = DefeatBetaYahooSource(cache_root=Path("data/cache/hf_datasets"))
+        store = PointInTimeDataStore(
+            sources={"defeatbeta_yahoo": src},
+            cache_dir=Path("data/cache/query_cache"),
+        )
+        try:
+            _set_stage(job_id, "engine", "active")
+            baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
+            _set_stage(job_id, "engine", "done")
+
+            # Use a placeholder claim from the spec — full PaperClaim extraction
+            # is a separate concern; for live uploads we accept that D2/D3
+            # may have a less-anchored target. The pipeline still completes.
+            placeholder_claim = PaperClaim(
+                claim_id=f"{paper_id}_baseline",
+                metric="long_short_monthly_return",
+                claimed_value=0.0,  # paper-claim extraction is Phase 5.5 work
+                claimed_tstat=None,
+                claimed_units="fraction_per_month",
+                paper_location="N/A (live upload, placeholder claim)",
+                supporting_quote=SupportingQuote(text="placeholder", page=1),
+            )
+
+            _set_stage(job_id, "d2", "active")
+            diagnose(
+                spec=clipped, baseline_result=baseline,
+                claim=placeholder_claim, store=store,
+                max_experiments=3, use_cache=True,
+            )
+            _set_stage(job_id, "d2", "done")
+
+            _set_stage(job_id, "battery", "active")
+            scorecard = run_battery(
+                clipped, store,
+                families=("costs", "liquidity", "capacity", "data_quality"),
+            )
+            _set_stage(job_id, "battery", "done")
+
+            _set_stage(job_id, "d3", "active")
+            judge(
+                scorecard=scorecard, baseline=baseline, claim=placeholder_claim,
+                use_cache=True,
+            )
+            _set_stage(job_id, "d3", "done")
+        finally:
+            src.close()
+
+        _finish_job(job_id, result={"paper_id": paper_id})
+
+    except BaseException as e:
+        traceback.print_exc()
+        _finish_job(job_id, error=f"{type(e).__name__}: {e}")
+
+
+@app.post("/api/pipeline/start")
+def pipeline_start(body: PaperIdBody):
+    """Kick off the full pipeline in a background thread; return a job_id."""
+    job_id = uuid.uuid4().hex[:12]
+    with PIPELINE_LOCK:
+        PIPELINE_JOBS[job_id] = {
+            "job_id": job_id,
+            "paper_id": body.paper_id,
+            "stage": "parse",
+            "status": "active",
+            "done": False,
+            "error": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+    threading.Thread(
+        target=_run_pipeline, args=(job_id, body.paper_id), daemon=True,
+    ).start()
+    return {"job_id": job_id}
+
+
+@app.get("/api/pipeline/status/{job_id}")
+def pipeline_status(job_id: str):
+    with PIPELINE_LOCK:
+        job = PIPELINE_JOBS.get(job_id)
+    if job is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "unknown job_id", "hint": "POST /api/pipeline/start first."},
+        )
+    return job
+
+
+# ---------------------------------------------------------------------------
 # Phase 5 — consolidated report (E1 aggregator)
 # ---------------------------------------------------------------------------
 

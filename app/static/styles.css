@@ -1128,7 +1128,7 @@ td.muted, .muted {
 .verdict-strip {
   background: linear-gradient(180deg, #161b24 0%, #11151c 100%);
   border-bottom: 1px solid var(--border);
-  padding: 16px 24px 14px;
+  padding: 8px 24px 8px;
   flex-shrink: 0;
 }
 .verdict-strip[hidden] { display: none !important; }
@@ -1138,18 +1138,18 @@ td.muted, .muted {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
-.vs-paper { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.vs-paper { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .vs-paper h2 {
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--text);
   margin: 0;
 }
 .vs-confidence {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1158,31 +1158,39 @@ td.muted, .muted {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(91, 157, 255, 0.10);
-  border: 1px solid rgba(91, 157, 255, 0.35);
+  background: rgba(91, 157, 255, 0.18);
+  border: 1px solid rgba(91, 157, 255, 0.55);
   color: var(--accent);
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  animation: vs-dbt-pulse 2.4s ease-out 1.5s 2;
 }
 .vs-dbt-btn:hover {
-  background: rgba(91, 157, 255, 0.18);
-  border-color: rgba(91, 157, 255, 0.55);
+  background: rgba(91, 157, 255, 0.28);
+  border-color: rgba(91, 157, 255, 0.8);
+  transform: translateY(-1px);
 }
 .vs-dbt-btn[hidden] { display: none !important; }
+@keyframes vs-dbt-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(91,157,255,0.5); }
+  60%  { box-shadow: 0 0 0 10px rgba(91,157,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(91,157,255,0); }
+}
 
 .vs-columns {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 24px;
+  gap: 16px;
   align-items: stretch;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
 }
 .vs-col {
-  padding: 14px 18px;
+  padding: 6px 14px;
   border-radius: var(--radius);
   background: var(--panel);
   border: 1px solid var(--border-soft);
@@ -1196,19 +1204,20 @@ td.muted, .muted {
 .vs-col-verdict[data-tag="UNDER WATER"] { border-left-color: #b3303d; background: rgba(179, 48, 61, 0.08); }
 
 .vs-label {
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 700;
   color: var(--text-subtle);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
 .vs-value {
-  font-size: 32px;
+  font-size: 24px;
   line-height: 1.05;
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: -0.01em;
+  display: inline-block;
 }
 .vs-col-claim .vs-value { color: var(--success); }
 .vs-col-verdict[data-tag="TRADEABLE"] .vs-value { color: var(--success); }
@@ -1217,29 +1226,41 @@ td.muted, .muted {
 .vs-col-verdict[data-tag="UNDER WATER"] .vs-value { color: #ff6b78; }
 
 .vs-tstat {
-  font-size: 13px;
+  display: inline-block;
+  font-size: 11.5px;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-left: 8px;
+  vertical-align: 4px;
 }
 .vs-loc {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: var(--text-subtle);
-  margin-top: 6px;
+  margin-top: 1px;
   font-style: italic;
 }
-.vs-tag-row { margin-top: 8px; }
+.vs-tag-row { display: inline-block; margin-left: 10px; vertical-align: 4px; }
 .vs-tag {
   display: inline-block;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 4px;
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   background: var(--border-soft);
   color: var(--text-muted);
 }
+.vs-why {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--text-subtle);
+  cursor: pointer;
+  border-bottom: 1px dotted var(--text-subtle);
+  vertical-align: 4px;
+}
+.vs-why:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .vs-col-verdict[data-tag="TRADEABLE"] .vs-tag { background: rgba(87,199,133,0.15); color: var(--success); }
 .vs-col-verdict[data-tag="BORDERLINE"] .vs-tag { background: rgba(224,164,88,0.18); color: var(--warning); }
 .vs-col-verdict[data-tag="NOT TRADEABLE AT SCALE"] .vs-tag { background: rgba(224,108,117,0.18); color: var(--danger); }
@@ -1258,28 +1279,29 @@ td.muted, .muted {
 .vs-windows {
   display: flex;
   align-items: center;
-  gap: 14px;
-  font-size: 11.5px;
+  gap: 10px;
+  font-size: 10.5px;
   color: var(--text-muted);
   flex-wrap: wrap;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 .vs-w-label {
-  text-transform: uppercase;
-  letter-spacing: 0.10em;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-subtle);
   margin-right: 4px;
   font-weight: 600;
 }
-.vs-w-sep { width: 1px; height: 12px; background: var(--border-soft); display: inline-block; }
+.vs-w-sep { width: 1px; height: 10px; background: var(--border-soft); display: inline-block; }
 
 .vs-summary {
-  margin-top: 10px;
-  font-size: 12.5px;
+  display: none;
+  margin-top: 6px;
+  font-size: 11.5px;
   color: var(--text-muted);
   font-style: italic;
   line-height: 1.5;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: rgba(91,157,255,0.04);
   border-left: 2px solid rgba(91,157,255,0.30);
   border-radius: 2px;
@@ -1480,3 +1502,199 @@ td.muted, .muted {
 .topnav .verdict[data-tag="TRADEABLE"] { color: var(--success); }
 .topnav .verdict[data-tag="BORDERLINE"] { color: var(--warning); }
 .topnav .verdict[data-tag="NOT TRADEABLE AT SCALE"] { color: var(--danger); }
+
+/* ============================================================
+   Phase 5 polish — top-level quick-controls strip
+   ============================================================ */
+.quick-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 24px;
+  background: #11141a;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.quick-controls[hidden] { display: none !important; }
+.qc-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--text-subtle);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.qc-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.qc-slider-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.qc-slider {
+  flex: 1 1 auto;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 5px;
+  background: linear-gradient(90deg, var(--success) 0%, var(--warning) 50%, var(--danger) 100%);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.qc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--text);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.qc-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--text);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.qc-bps-readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* "Why?" tooltip popover */
+.vs-why-popover {
+  position: absolute;
+  z-index: 50;
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  line-height: 1.5;
+}
+.vs-why-popover[hidden] { display: none !important; }
+.vs-why-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px; left: 18px;
+  width: 10px; height: 10px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* ============================================================
+   Phase 5 polish — pipeline stepper bar
+   ============================================================ */
+.pipeline-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 24px;
+  background: #14181f;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.pipeline-stepper[hidden] { display: none !important; }
+.ps-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  color: var(--text-subtle);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.ps-step .ps-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--border-soft);
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 700;
+}
+.ps-step[data-state="pending"] .ps-icon::before { content: "○"; }
+.ps-step[data-state="active"] {
+  background: rgba(91,157,255,0.14);
+  border-color: rgba(91,157,255,0.45);
+  color: var(--accent);
+}
+.ps-step[data-state="active"] .ps-icon {
+  background: var(--accent);
+  color: var(--bg);
+  animation: ps-spin 0.8s linear infinite;
+}
+.ps-step[data-state="active"] .ps-icon::before { content: "⟳"; }
+.ps-step[data-state="done"] {
+  background: rgba(87,199,133,0.10);
+  border-color: rgba(87,199,133,0.40);
+  color: var(--success);
+}
+.ps-step[data-state="done"] .ps-icon {
+  background: var(--success);
+  color: var(--bg);
+}
+.ps-step[data-state="done"] .ps-icon::before { content: "✓"; }
+.ps-step[data-state="failed"] {
+  background: rgba(224,108,117,0.12);
+  border-color: rgba(224,108,117,0.45);
+  color: var(--danger);
+}
+.ps-step[data-state="failed"] .ps-icon::before { content: "✗"; }
+.ps-arrow { color: var(--text-subtle); font-size: 10px; }
+@keyframes ps-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+.ps-collapsed {
+  font-size: 11.5px;
+  color: var(--success);
+  cursor: pointer;
+  user-select: none;
+}
+.ps-collapsed:hover { color: var(--accent); }
+
+/* ============================================================
+   Phase 5 polish — topnav button demotion
+   ============================================================ */
+.topnav .btn-primary,
+.topnav .btn-ghost {
+  font-size: 12px;
+  padding: 5px 10px;
+  font-weight: 500;
+}
+.topnav .btn-primary {
+  background: rgba(91,157,255,0.12);
+  border: 1px solid rgba(91,157,255,0.35);
+  color: var(--accent);
+}
+.topnav .btn-primary:hover {
+  background: rgba(91,157,255,0.22);
+}
