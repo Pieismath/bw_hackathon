@@ -555,7 +555,7 @@ function resetVerdictStrip() {
   // block entirely until a bundle populates it.
   const summary = document.getElementById('vs-summary');
   if (summary) summary.textContent = '';
-  const conf = $('#vs-confidence'); if (conf) conf.textContent = 'confidence: —';
+  const conf = $('#vs-confidence'); if (conf) conf.innerHTML = '';
   const verdictCol = $('#vs-col-verdict'); if (verdictCol) verdictCol.removeAttribute('data-tag');
   const pop = $('#vs-why-popover'); if (pop) { pop.hidden = true; pop.textContent = ''; }
   const dbt = $('#vs-dbt-toggle'); if (dbt) dbt.hidden = true;
@@ -1330,8 +1330,6 @@ function renderSpec(verified) {
     root.appendChild(emptyState('no_sim', 'No spec loaded. Run extraction or load the demo bundle.'));
     return;
   }
-  // The displayed spec is originalSpec ⊕ dial overrides. Quotes always come
-  // from the verified payload (= the A1/A2 pristine record).
   const baseVerified = verified || (state.bundle && state.bundle.verified_spec) || null;
   const baseSpec = state.originalSpec || (baseVerified && baseVerified.spec);
   if (!baseSpec) {
@@ -1347,11 +1345,9 @@ function renderSpec(verified) {
         rebalance: baseVerified.spec.rebalance.supporting_quote,
       }
     : { universe: baseSpec.universe.supporting_quote, signal: baseSpec.signal.supporting_quote, portfolio: baseSpec.portfolio.supporting_quote, rebalance: baseSpec.rebalance.supporting_quote };
-
-  // Overrides set: which displayed fields should carry the "(overridden)" badge.
   const overridePathSet = new Set(computeOverrides().map((o) => o.path));
 
-  // Override list panel (above the sections, hidden by default).
+  // Override list panel (above the prose, hidden by default).
   const overrideList = el('div', { class: 'override-list hidden', id: 'override-list' });
   const overrides = computeOverrides();
   if (overrides.length) {
@@ -1361,99 +1357,219 @@ function renderSpec(verified) {
   }
   root.appendChild(overrideList);
 
-  // Headline claim — what the paper says about the variant A1 chose. Drives D2.
+  // 1. Briefing-memo prose at the top — one paragraph composed from the spec.
+  root.appendChild(buildSpecMemo(spec));
+
+  // 2. Paper Reported Result — kept as a card up top because it's its own thing.
   if (spec.headline_claim) {
-    const hc = spec.headline_claim;
-    root.appendChild(specBlock('Paper Reported Result', {
-      'metric': [hc.metric, false],
-      'monthly_return': [fmtPct(hc.monthly_return, 3), false],
-      't_stat': [hc.t_stat == null ? '—' : fmtNum(hc.t_stat, 2), false],
-      'window_label': [hc.window_label, false],
-      'paper_location': [hc.paper_location, false],
-    }, hc.supporting_quote));
+    root.appendChild(buildClaimMemo(spec.headline_claim));
   }
 
-  root.appendChild(specBlock('Paper Header', {
-    'paper_id': [spec.paper_id, false],
-    'paper_title': [spec.paper_title, false],
-    'window': [`${fmtDate(spec.start_date)} → ${fmtDate(spec.end_date)}`, overridePathSet.has('start_date') || overridePathSet.has('end_date')],
-    'base_currency': [spec.base_currency, false],
-    'notes': [spec.notes || '—', false],
+  // 3. Five extraction lanes — Header / Universe / Signal / Portfolio / Rebalance.
+  const lanes = el('div', { class: 'spec-lanes' });
+  lanes.appendChild(buildSpecLane({
+    label: 'Paper',
+    fields: [
+      ['paper_id', spec.paper_id, false],
+      ['title', spec.paper_title, false],
+      ['window', `${fmtDate(spec.start_date)} → ${fmtDate(spec.end_date)}`,
+        overridePathSet.has('start_date') || overridePathSet.has('end_date')],
+      ['currency', spec.base_currency, false],
+    ],
+    note: spec.notes || null,
   }));
+  lanes.appendChild(buildSpecLane({
+    label: 'Universe',
+    fields: [
+      ['name', spec.universe.name, false],
+      ['region', spec.universe.region, false],
+      ['asset class', spec.universe.asset_class, false],
+      ['min price', spec.universe.min_price == null ? '—' : `$${spec.universe.min_price}`, overridePathSet.has('universe.min_price')],
+      ['exchanges', (spec.universe.exchanges || []).join(', ') || '—', overridePathSet.has('universe.exchanges')],
+    ],
+    quote: quotes.universe,
+  }));
+  lanes.appendChild(buildSpecLane({
+    label: 'Signal',
+    fields: [
+      ['kind', spec.signal.kind, false],
+      ['formula', spec.signal.formula, false],
+      ['lookback', spec.signal.lookback_months == null ? '—' : `${spec.signal.lookback_months}m`, overridePathSet.has('signal.lookback_months')],
+      ['skip', `${spec.signal.skip_months}m`, overridePathSet.has('signal.skip_months')],
+      ['direction', spec.signal.direction, false],
+      ['frequency', spec.signal.frequency, false],
+    ],
+    quote: quotes.signal,
+  }));
+  lanes.appendChild(buildSpecLane({
+    label: 'Portfolio',
+    fields: [
+      ['construction', spec.portfolio.construction, false],
+      ['n buckets', spec.portfolio.n_buckets, overridePathSet.has('portfolio.n_buckets')],
+      ['long bucket', spec.portfolio.long_bucket, overridePathSet.has('portfolio.long_bucket')],
+      ['short bucket', spec.portfolio.short_bucket ?? '—', overridePathSet.has('portfolio.short_bucket')],
+      ['weighting', spec.portfolio.weighting, overridePathSet.has('portfolio.weighting')],
+      ['long-short', spec.portfolio.long_short ? 'yes' : 'no', false],
+      ['gross exposure', spec.portfolio.gross_exposure, false],
+      ['NYSE breakpoints', spec.portfolio.use_nyse_breakpoints ? 'yes' : 'no', overridePathSet.has('portfolio.use_nyse_breakpoints')],
+    ],
+    quote: quotes.portfolio,
+  }));
+  lanes.appendChild(buildSpecLane({
+    label: 'Rebalance',
+    fields: [
+      ['frequency', spec.rebalance.frequency, false],
+      ['execution lag', `${spec.rebalance.execution_lag_days}d`, overridePathSet.has('rebalance.execution_lag_days')],
+      ['holding period', spec.rebalance.holding_period_months == null ? '—' : `${spec.rebalance.holding_period_months}m`, overridePathSet.has('rebalance.holding_period_months')],
+      ['signal convention', spec.rebalance.signal_date_convention, false],
+      ['execution convention', spec.rebalance.execution_date_convention, false],
+    ],
+    quote: quotes.rebalance,
+  }));
+  root.appendChild(lanes);
 
-  root.appendChild(specBlock('Investable Universe', {
-    'name': [spec.universe.name, false],
-    'region': [spec.universe.region, false],
-    'asset_class': [spec.universe.asset_class, false],
-    'min_price': [spec.universe.min_price ?? '—', overridePathSet.has('universe.min_price')],
-    'exchanges': [(spec.universe.exchanges || []).join(', ') || '—', overridePathSet.has('universe.exchanges')],
-  }, quotes.universe));
-
-  root.appendChild(specBlock('Signal Construction', {
-    'name': [spec.signal.name, false],
-    'kind': [spec.signal.kind, false],
-    'formula': [spec.signal.formula, false],
-    'lookback_months': [spec.signal.lookback_months ?? '—', overridePathSet.has('signal.lookback_months')],
-    'skip_months': [spec.signal.skip_months, overridePathSet.has('signal.skip_months')],
-    'direction': [spec.signal.direction, false],
-    'frequency': [spec.signal.frequency, false],
-  }, quotes.signal));
-
-  root.appendChild(specBlock('Portfolio Construction', {
-    'construction': [spec.portfolio.construction, false],
-    'n_buckets': [spec.portfolio.n_buckets, overridePathSet.has('portfolio.n_buckets')],
-    'long_bucket': [spec.portfolio.long_bucket, overridePathSet.has('portfolio.long_bucket')],
-    'short_bucket': [spec.portfolio.short_bucket ?? '—', overridePathSet.has('portfolio.short_bucket')],
-    'weighting': [spec.portfolio.weighting, overridePathSet.has('portfolio.weighting')],
-    'long_short': [spec.portfolio.long_short ? 'yes' : 'no', false],
-    'gross_exposure': [spec.portfolio.gross_exposure, false],
-    'use_nyse_breakpoints': [spec.portfolio.use_nyse_breakpoints ? 'yes' : 'no', overridePathSet.has('portfolio.use_nyse_breakpoints')],
-  }, quotes.portfolio));
-
-  root.appendChild(specBlock('Rebalancing Cadence', {
-    'frequency': [spec.rebalance.frequency, false],
-    'execution_lag_days': [spec.rebalance.execution_lag_days, overridePathSet.has('rebalance.execution_lag_days')],
-    'holding_period_months': [spec.rebalance.holding_period_months ?? '—', overridePathSet.has('rebalance.holding_period_months')],
-    'signal_date_convention': [spec.rebalance.signal_date_convention, false],
-    'execution_date_convention': [spec.rebalance.execution_date_convention, false],
-  }, quotes.rebalance));
-
-  // Ambiguities — always taken from the original A1 output. Dials don't add
-  // or remove ambiguities; they just override values.
+  // 4. Ambiguities — annotation cards (one per ambiguity), reads as the agent
+  // showing its work. Always taken from original A1 output.
   const ambSource = baseSpec;
   if (ambSource.ambiguities && ambSource.ambiguities.length) {
-    const head = el('div', { class: 'spec-section-head' }, [
-      el('h3', {}, `Ambiguities (${ambSource.ambiguities.length})`),
-    ]);
-    const list = el('div', { class: 'spec-section' });
-    list.appendChild(head);
-
-    const table = el('table', { class: 'data' });
-    const thead = el('thead', {}, [
-      el('tr', {}, [
-        el('th', {}, 'Parameter'),
-        el('th', {}, 'Default'),
-        el('th', {}, 'Alternatives'),
-        el('th', {}, 'Priority'),
-        el('th', {}, 'Reason'),
-      ]),
-    ]);
-    table.appendChild(thead);
-    const tbody = el('tbody');
-    ambSource.ambiguities.forEach((f) => {
-      const sevClass = f.sensitivity_priority === 'high' ? 'fail' : f.sensitivity_priority === 'medium' ? 'warn' : 'info';
-      tbody.appendChild(el('tr', {}, [
-        el('td', {}, f.parameter),
-        el('td', {}, f.default_chosen),
-        el('td', {}, (f.alternatives || []).join(', ') || '—'),
-        el('td', {}, [el('span', { class: `pill ${sevClass}` }, capitalize(f.sensitivity_priority))]),
-        el('td', {}, f.reason),
-      ]));
-    });
-    table.appendChild(tbody);
-    list.appendChild(table);
-    root.appendChild(list);
+    root.appendChild(buildAmbiguitiesPanel(ambSource.ambiguities));
   }
+}
+
+// ---------- Methodology tab — briefing memo helpers ----------
+
+// Compose a one-paragraph English summary of the spec. Reads like a research-
+// desk note: what universe, what signal, how portfolios are formed, and what
+// the cadence is. Used at the top of the Methodology tab so a trader can
+// grasp the strategy in one read before drilling into fields.
+function buildSpecMemo(spec) {
+  const u = spec.universe;
+  const s = spec.signal;
+  const p = spec.portfolio;
+  const r = spec.rebalance;
+  const universe = `${u.region || 'global'} ${u.asset_class || 'equity'}${u.name ? ` (${u.name})` : ''}${u.min_price != null ? ` with a $${u.min_price} price floor` : ''}${(u.exchanges || []).length ? ` on ${u.exchanges.join('/')}` : ''}`;
+  const direction = s.direction === 'long_high' ? 'top-ranked' : s.direction === 'long_low' ? 'bottom-ranked' : 'ranked';
+  const signalDesc = s.kind === 'past_return'
+    ? `trailing ${s.lookback_months}-month return${s.skip_months ? ` (skip ${s.skip_months}m)` : ''}`
+    : s.kind === 'variance_ratio'
+      ? `variance ratio over a ${s.lookback_months || '—'}-month window`
+      : s.formula || s.kind;
+  const portfolioDesc = p.long_short
+    ? `goes long the ${direction} ${p.construction || 'bucket'} and short the opposite, ${p.weighting}-weighted${p.long_bucket && p.n_buckets ? ` (long ${p.long_bucket}/${p.n_buckets}, short ${p.short_bucket ?? '—'}/${p.n_buckets})` : ''}`
+    : `holds the ${direction} ${p.construction || 'bucket'}, ${p.weighting}-weighted`;
+  const cadenceDesc = `Rebalanced ${r.frequency}${r.holding_period_months ? ` with ${r.holding_period_months}-month holding period` : ''}${r.execution_lag_days ? `, ${r.execution_lag_days}-day execution lag` : ''}`;
+  const window = `${fmtDate(spec.start_date)} → ${fmtDate(spec.end_date)}`;
+
+  const wrap = el('div', { class: 'spec-memo' });
+  wrap.appendChild(el('div', { class: 'spec-memo-eyebrow' }, 'Agent extraction · human review'));
+  wrap.appendChild(el('h2', { class: 'spec-memo-title' }, spec.paper_title || spec.paper_id || '—'));
+  wrap.appendChild(el('p', { class: 'spec-memo-prose' },
+    `Strategy on ${universe}. The signal is the ${signalDesc}; the portfolio ${portfolioDesc}. ${cadenceDesc}. Paper window ${window}.`
+  ));
+  return wrap;
+}
+
+// Paper-reported result card — the headline_claim block. Different from the
+// extraction lanes because this is what the paper says, not what the agent
+// extracted from the methodology.
+function buildClaimMemo(hc) {
+  const wrap = el('div', { class: 'spec-claim-memo' });
+  wrap.appendChild(el('div', { class: 'spec-memo-eyebrow' }, 'Paper Reported Result'));
+  const row = el('div', { class: 'spec-claim-row' });
+  row.appendChild(el('div', { class: 'spec-claim-cell' }, [
+    el('div', { class: 'spec-claim-label' }, 'Monthly long-short'),
+    el('div', { class: 'spec-claim-value' }, fmtPct(hc.monthly_return, 3) + '/mo'),
+  ]));
+  if (hc.t_stat != null) {
+    row.appendChild(el('div', { class: 'spec-claim-cell' }, [
+      el('div', { class: 'spec-claim-label' }, 't-stat'),
+      el('div', { class: 'spec-claim-value' }, fmtNum(hc.t_stat, 2)),
+    ]));
+  }
+  row.appendChild(el('div', { class: 'spec-claim-cell wide' }, [
+    el('div', { class: 'spec-claim-label' }, 'Window'),
+    el('div', { class: 'spec-claim-value mono' }, hc.window_label || '—'),
+  ]));
+  wrap.appendChild(row);
+  if (hc.paper_location) {
+    wrap.appendChild(el('div', { class: 'spec-claim-loc' }, hc.paper_location));
+  }
+  if (hc.supporting_quote) {
+    wrap.appendChild(buildMarginQuote(hc.supporting_quote));
+  }
+  return wrap;
+}
+
+// One extraction lane. Renders as a left-rail accent with a small-caps
+// section label, inline chip-style fields, and a margin-annotation quote
+// underneath. Designed to read like a trader's review rather than a form.
+function buildSpecLane({ label, fields, quote, note }) {
+  const lane = el('div', { class: 'spec-lane' });
+  lane.appendChild(el('div', { class: 'spec-lane-label' }, label));
+  const body = el('div', { class: 'spec-lane-body' });
+  const chips = el('div', { class: 'spec-chip-row' });
+  fields.forEach(([k, v, overridden]) => {
+    if (v == null || v === '') return;
+    const chip = el('span', { class: 'spec-chip' + (overridden ? ' overridden' : '') });
+    chip.appendChild(el('span', { class: 'spec-chip-key' }, k));
+    chip.appendChild(el('span', { class: 'spec-chip-val' }, String(v)));
+    chips.appendChild(chip);
+  });
+  body.appendChild(chips);
+  if (note) {
+    body.appendChild(el('div', { class: 'spec-lane-note' }, note));
+  }
+  if (quote) {
+    body.appendChild(buildMarginQuote(quote));
+  }
+  lane.appendChild(body);
+  return lane;
+}
+
+// Margin-annotation quote — a quote from the paper rendered as a left-bordered
+// italic block, like a handwritten margin note. Severity color from the
+// quote's verification state when available.
+function buildMarginQuote(q) {
+  const sev = q.verified ? 'ok' : (q.match_confidence != null && q.match_confidence < 0.9) ? 'warn' : 'info';
+  const wrap = el('div', { class: `spec-margin-quote sev-${sev}` });
+  wrap.appendChild(el('div', { class: 'spec-margin-meta' },
+    `page ${q.page} · confidence ${fmtNum(q.match_confidence, 2)} · ${q.verified ? 'verified' : 'unverified'}`
+  ));
+  wrap.appendChild(el('div', { class: 'spec-margin-text' }, '“' + q.text + '”'));
+  return wrap;
+}
+
+// Ambiguities panel — one annotation card per ambiguity. Reads as prose:
+// "agent chose X because the paper doesn't specify; alternatives are Y, Z."
+function buildAmbiguitiesPanel(ambiguities) {
+  const wrap = el('div', { class: 'spec-ambiguities' });
+  wrap.appendChild(el('div', { class: 'spec-memo-eyebrow' },
+    `Ambiguities · ${ambiguities.length} field${ambiguities.length === 1 ? '' : 's'} the agent had to interpret`
+  ));
+  wrap.appendChild(el('p', { class: 'spec-ambiguities-intro' },
+    'The paper did not explicitly specify these parameters. The agent picked a default and surfaced the alternatives — review before sizing up.'
+  ));
+  ambiguities.forEach((f) => {
+    const sev = f.sensitivity_priority === 'high' ? 'fail' : f.sensitivity_priority === 'medium' ? 'warn' : 'info';
+    const card = el('div', { class: `spec-ambig-card sev-${sev}` });
+    card.appendChild(el('div', { class: 'spec-ambig-head' }, [
+      el('span', { class: `spec-ambig-dot sev-${sev}` }),
+      el('span', { class: 'spec-ambig-param' }, f.parameter),
+      el('span', { class: 'spec-ambig-priority' }, capitalize(f.sensitivity_priority || 'medium') + ' priority'),
+    ]));
+    card.appendChild(el('div', { class: 'spec-ambig-body' }, [
+      'Agent chose ',
+      el('strong', {}, formatDialValue(f.default_chosen)),
+      (f.alternatives && f.alternatives.length)
+        ? `; alternatives: ${f.alternatives.join(', ')}.`
+        : '.',
+    ]));
+    if (f.reason) {
+      card.appendChild(el('div', { class: 'spec-ambig-reason' }, f.reason));
+    }
+    wrap.appendChild(card);
+  });
+  return wrap;
 }
 
 function specBlock(title, fields, supportingQuote) {
@@ -3531,22 +3647,23 @@ async function loadPhase5Report({ render = true } = {}) {
 // ----- Verdict strip -----
 
 function renderVerdictStrip(report) {
-  const h = report.headline;
+  const h = report && report.headline;
   if (!h) return;
   const strip = $('#verdict-strip');
   strip.hidden = false;
 
-  $('#vs-paper-title').textContent = h.paper_title;
-  $('#vs-confidence').textContent =
-    `confidence: ${h.verdict.confidence} · ${h.verdict.signal_type}`;
+  $('#vs-paper-title').textContent = h.paper_title || '—';
 
-  // Left column — paper claim. Guard against the impossible-but-emitted
-  // (value==0 with non-zero t-stat) case: render as "not extracted" so
-  // the verdict strip doesn't claim "+0.000%/mo, t=+2.67".
-  // Statistical-test papers (variance-ratio class — Lo-MacKinlay,
-  // Poterba-Summers, AQR streaks) genuinely don't have a tradeable L/S
-  // claim. Show a short "VR statistic" tag instead of "—/mo".
-  const c = h.claim;
+  // Left column — paper claim. Write the value cells FIRST, before any
+  // optional decorations (pills, popover, DBT toggle). If a downstream
+  // helper throws, the user still sees the populated numbers — they're
+  // the most important thing on the strip.
+  // Guard against the impossible-but-emitted (value==0 with non-zero
+  // t-stat) case: render as "not extracted". Statistical-test papers
+  // (variance-ratio class — Lo-MacKinlay, Poterba-Summers, AQR streaks)
+  // genuinely don't have a tradeable L/S claim — short "VR statistic"
+  // tag instead of "—/mo".
+  const c = h.claim || {};
   const claimSuspicious = c.value === 0 && c.tstat != null && c.tstat !== 0;
   const noClaim = c.value == null || claimSuspicious;
   const statOnlyClaim = noClaim && detectStatisticalOnlyPaper(state.bundle);
@@ -3561,11 +3678,20 @@ function renderVerdictStrip(report) {
   }
 
   // Right column — implementable verdict
-  const v = h.verdict;
+  const v = (h.verdict || {});
   $('#vs-impl-value').textContent = fmtPctSigned(v.implementable_alpha, 3) + '/mo';
   $('#vs-impl-tstat').textContent = fmtTstat(v.tstat_estimate);
   $('#vs-tag').textContent = v.tradeable_label || '—';
   $('#vs-col-verdict').setAttribute('data-tag', v.tradeable_label || '');
+
+  // Confidence + signal-type pills — wrap in try/catch so a helper
+  // failure here can never abort the value-cell writes above.
+  try {
+    $('#vs-confidence').innerHTML = renderConfidencePills(v.confidence, v.signal_type);
+  } catch (e) {
+    console && console.error && console.error('renderConfidencePills failed:', e);
+    $('#vs-confidence').textContent = '';
+  }
 
   // Window row (collapsed to single horizontal line of small-caps)
   $('#vs-paper-window').textContent = ' ' + (h.paper_window || h.sample_paper || '—');
@@ -3683,18 +3809,26 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
 
   // Confidence + signal-type subline. When PROXY_ONLY or NO_TARGET, the
   // signal_type field is meaningless — D3 was judging the wrong thing.
-  const cf = $('#vs-confidence');
-  const statOnlyVS = detectStatisticalOnlyPaper(state.bundle);
-  if (cf) {
-    if (proxyMode) {
-      cf.textContent = 'engine ran a structured proxy — NOT the paper\'s signal';
-    } else if (noTarget && statOnlyVS) {
-      cf.textContent = 'statistical-test paper (variance-ratio) — paper has no tradeable L/S claim';
-    } else if (noTarget) {
-      cf.textContent = 'no paper headline target supplied — verdict is vs zero, not vs paper';
-    } else {
-      cf.textContent = `confidence: ${conf} · ${sigType}`;
+  // Wrap in try/catch so a pill-rendering failure can never abort the
+  // value-cell writes above.
+  try {
+    const cf = $('#vs-confidence');
+    const statOnlyVS = detectStatisticalOnlyPaper(state.bundle);
+    if (cf) {
+      if (proxyMode) {
+        cf.innerHTML = '<span class="vs-pill vs-pill-warn" title="The engine substituted a 12-month past-return proxy because the paper\'s signal kind isn\'t natively implemented yet. Every number is a verdict on the proxy, not the paper.">Proxy run</span>';
+      } else if (noTarget && statOnlyVS) {
+        cf.innerHTML = '<span class="vs-pill vs-pill-info" title="Variance-ratio / autocorrelation papers (Lo-MacKinlay, Poterba-Summers, …) report statistics, not a tradeable L/S return. The implementable alpha is the implicit strategy\'s return vs zero.">Statistical test</span>';
+      } else if (noTarget) {
+        cf.innerHTML = '<span class="vs-pill vs-pill-warn" title="A1 didn\'t extract a paper headline number (common for papers reporting Sharpe ratios or regression alphas). The implementable alpha is measured vs zero, not vs the paper\'s claim.">No paper claim</span>';
+      } else {
+        cf.innerHTML = renderConfidencePills(conf, sigType);
+      }
     }
+  } catch (e) {
+    console && console.error && console.error('verdict-strip pill render failed:', e);
+    const cf2 = $('#vs-confidence');
+    if (cf2) cf2.textContent = '';
   }
 
   // Window + gap-attribution row from window_info / judgment
@@ -4037,6 +4171,35 @@ function detectNoTarget(claim) {
   // legacy demo bundle can still surface them).
   if (claim.monthly_return === 0 && claim.tstat != null && claim.tstat !== 0) return true;
   return false;
+}
+
+// Render the confidence + signal-type subline as two color-coded pills
+// instead of crowded "confidence: medium · not_evaluated" prose. Each
+// pill carries a tooltip explaining what the field means so users
+// hovering can learn the vocabulary.
+//   confidence — D3's confidence in its implementability verdict
+//                (low / medium / high). Drives color: red / gold / green.
+//   signal_type — D3's classification of the strategy's edge
+//                (alpha_signal, beta_proxy, microstructure, structural,
+//                 stale, not_evaluated). When `not_evaluated` (proxy run,
+//                 no claim, or D3 declined to classify) we hide the pill
+//                 entirely — it's noise, not information.
+function renderConfidencePills(confidence, sigType) {
+  const c = (confidence || '').toLowerCase();
+  const confColor = c === 'high' ? 'good' : c === 'medium' ? 'warn' : c === 'low' ? 'bad' : 'mute';
+  const confLabel = confidence || '—';
+  const confPill = `<span class="vs-pill vs-pill-${confColor}" title="D3 confidence in the implementability verdict (low / medium / high). Driven by sample size, surviving stress tests, and gap-attribution clarity.">conf · ${escapeHtml(confLabel)}</span>`;
+  // Hide signal-type when D3 didn't evaluate it.
+  if (!sigType || sigType === 'not_evaluated' || sigType === '—') {
+    return confPill;
+  }
+  const sigLabel = signalTypeLabel(sigType);
+  const sigPill = `<span class="vs-pill vs-pill-info" title="D3's classification of the strategy's edge: where the return comes from. alpha_signal = genuine mispricing; beta_proxy = factor exposure; microstructure = trading-cost / reversal effect; structural = risk premium; stale = no longer works.">${escapeHtml(sigLabel)}</span>`;
+  return confPill + sigPill;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 }
 
 // Statistical-test papers (Lo-MacKinlay 1988, Poterba-Summers 1988, …)

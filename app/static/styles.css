@@ -521,7 +521,258 @@ h1, h2, h3, h4, .serif {
 /* ---------- Tab show/hide ---------- */
 .tab.hidden { display: none; }
 
-/* ---------- Spec blocks ---------- */
+/* ============================================================
+   Methodology tab — briefing-memo layout
+   Replaces the old box-per-section design with a continuous
+   readable flow: prose summary → claim card → 5 extraction
+   lanes → ambiguity annotation cards. The trader reviews the
+   agent's work rather than scanning a form.
+   ============================================================ */
+.spec-memo {
+  margin-bottom: 22px;
+  padding: 0 4px;
+}
+.spec-memo-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.spec-memo-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: 12px;
+}
+.spec-memo-prose {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  max-width: 880px;
+}
+
+/* Paper Reported Result card */
+.spec-claim-memo {
+  margin: 0 0 26px;
+  padding: 14px 18px 16px;
+  background: var(--panel);
+  border-left: 3px solid var(--brick, var(--accent));
+  border-top: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.spec-claim-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 4px;
+}
+.spec-claim-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.spec-claim-cell.wide { flex: 1; min-width: 200px; }
+.spec-claim-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.spec-claim-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text);
+}
+.spec-claim-value.mono { font-size: 13.5px; font-weight: 400; }
+.spec-claim-loc {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Five extraction lanes */
+.spec-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+.spec-lane {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 18px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.spec-lane:last-child { border-bottom: none; }
+.spec-lane-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-subtle);
+  font-weight: 600;
+  padding-top: 4px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+}
+.spec-lane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.spec-lane-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  font-style: italic;
+}
+
+/* Inline chip-style fields */
+.spec-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.spec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  background: rgba(91, 157, 255, 0.04);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.spec-chip-key {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.spec-chip-val {
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.spec-chip.overridden {
+  background: rgba(224, 164, 88, 0.08);
+  border-color: rgba(224, 164, 88, 0.45);
+}
+.spec-chip.overridden::after {
+  content: '✏';
+  color: var(--warning);
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+/* Margin-annotation quote */
+.spec-margin-quote {
+  margin-top: 4px;
+  padding: 8px 14px 10px;
+  border-left: 3px solid var(--text-subtle);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  line-height: 1.55;
+  font-style: italic;
+  color: var(--text-muted);
+  max-width: 760px;
+}
+.spec-margin-quote.sev-ok { border-left-color: var(--success); }
+.spec-margin-quote.sev-warn { border-left-color: var(--warning); }
+.spec-margin-quote.sev-info { border-left-color: var(--accent); }
+.spec-margin-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-subtle);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 5px;
+}
+.spec-margin-text {
+  color: var(--text);
+}
+
+/* Ambiguity annotation cards */
+.spec-ambiguities {
+  margin-top: 14px;
+  padding: 0 4px;
+}
+.spec-ambiguities-intro {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin-bottom: 14px;
+  max-width: 780px;
+}
+.spec-ambig-card {
+  margin-bottom: 10px;
+  padding: 12px 14px 14px;
+  border-left: 3px solid var(--text-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+.spec-ambig-card.sev-fail { border-left-color: var(--danger); background: rgba(224, 108, 117, 0.04); }
+.spec-ambig-card.sev-warn { border-left-color: var(--warning); background: rgba(224, 164, 88, 0.04); }
+.spec-ambig-card.sev-info { border-left-color: var(--accent); background: rgba(91, 157, 255, 0.04); }
+.spec-ambig-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.spec-ambig-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+}
+.spec-ambig-dot.sev-fail { background: var(--danger); }
+.spec-ambig-dot.sev-warn { background: var(--warning); }
+.spec-ambig-dot.sev-info { background: var(--accent); }
+.spec-ambig-param {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+}
+.spec-ambig-priority {
+  margin-left: auto;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+.spec-ambig-body {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+.spec-ambig-body strong {
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  font-size: 12.5px;
+}
+.spec-ambig-reason {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-style: italic;
+  max-width: 780px;
+}
+
+/* ---------- Spec blocks (legacy — kept for fallback paths) ---------- */
 .spec-section {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -1636,13 +1887,34 @@ td.muted, .muted {
   margin-right: 3px;
 }
 .vs-confidence {
-  font-family: 'Inter', sans-serif;
-  font-size: 9px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
+/* Color-coded chip for confidence + signal-type. Replaces the old
+   "confidence: medium · not_evaluated" prose so the two distinct concepts
+   are visually separated. Each chip has a tooltip explaining the field. */
+.vs-pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: help;
+}
+.vs-pill-good { color: var(--success); border-color: rgba(111, 159, 107, 0.55); background: rgba(111, 159, 107, 0.06); }
+.vs-pill-warn { color: var(--gold);    border-color: rgba(184, 151, 98, 0.55); background: rgba(184, 151, 98, 0.06); }
+.vs-pill-bad  { color: var(--danger);  border-color: rgba(168, 57, 48, 0.55);  background: rgba(168, 57, 48, 0.06); }
+.vs-pill-info { color: var(--text-muted); border-color: var(--border); background: var(--bg-alt); }
+.vs-pill-mute { color: var(--text-subtle); border-color: var(--border); background: transparent; }
 .vs-dbt-btn {
   display: inline-flex;
   align-items: center;
