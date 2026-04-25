@@ -721,6 +721,17 @@ def _set_stage(job_id: str, stage: str, status: str = "active") -> None:
         )
 
 
+def _set_partial(job_id: str, bundle: dict) -> None:
+    """Stash the in-progress bundle so the SPA can render each stage's
+    output as soon as it's available — rather than waiting for the whole
+    pipeline. The frontend's poll loop reads `result` on every status hit.
+    """
+    with PIPELINE_LOCK:
+        if job_id not in PIPELINE_JOBS:
+            return
+        PIPELINE_JOBS[job_id]["result"] = _sanitize_for_json(dict(bundle))
+
+
 def _finish_job(job_id: str, *, error: str | None = None, result: dict | None = None) -> None:
     with PIPELINE_LOCK:
         if job_id not in PIPELINE_JOBS:
@@ -766,6 +777,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         bundle["paper_title"] = spec.paper_title
         bundle["verified_spec"] = verified.model_dump(mode="json")
         _set_stage(job_id, "a1", "done")
+        _set_partial(job_id, bundle)
 
         _set_stage(job_id, "a2", "done")  # A2 is folded into extract_and_verify
 
@@ -774,6 +786,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         spec_with_critique = fold_high_severity_into_spec(spec, critique)
         bundle["critique"] = critique.model_dump(mode="json")
         _set_stage(job_id, "a3", "done")
+        _set_partial(job_id, bundle)
 
         _set_stage(job_id, "b", "active")
         mapping = map_data(spec_with_critique, use_cache=True)
@@ -782,6 +795,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         )
         bundle["mapping"] = verified_mapping.model_dump(mode="json")
         _set_stage(job_id, "b", "done")
+        _set_partial(job_id, bundle)
 
         # Substitute / clip the spec window to the parquet panel — same logic
         # as /api/backtest, so any paper (JT 1965-1989, Quantformer 2020-2023,
@@ -806,6 +820,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
                 baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
             bundle["backtest"] = baseline.model_dump(mode="json")
             _set_stage(job_id, "engine", "done")
+            _set_partial(job_id, bundle)
 
             placeholder_claim = PaperClaim(
                 claim_id=f"{paper_id}_baseline",
@@ -825,6 +840,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             )
             bundle["diagnosis"] = diagnosis.model_dump(mode="json")
             _set_stage(job_id, "d2", "done")
+            _set_partial(job_id, bundle)
 
             _set_stage(job_id, "battery", "active")
             scorecard = run_battery(
@@ -843,6 +859,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
                 "judgment": judgment.model_dump(mode="json"),
             }
             _set_stage(job_id, "d3", "done")
+            _set_partial(job_id, bundle)
         finally:
             src.close()
 

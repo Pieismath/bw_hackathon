@@ -811,7 +811,101 @@ function applyBundle(bundle) {
   renderDiagnosis(bundle.diagnosis, bundle.paper_claim);
   renderLineage(bundle);
   renderKPIs(bundle.backtest);
+  // Drive the headline verdict strip from the live bundle (not the static
+  // outputs/jt_*.json report). Falls back gracefully when only some stages
+  // have completed (paper_title/spec available but no backtest yet).
+  renderVerdictStrip(buildLiveReport(bundle));
   setStatus('Ready — bundle loaded', 'green');
+}
+
+// Build the {headline, ...} report shape that renderVerdictStrip consumes,
+// from a live pipeline bundle. Mirrors the report-synthesizer's headline
+// derivation so the verdict strip shows live numbers (not the cached JT
+// values from /api/report).
+function buildLiveReport(bundle) {
+  const spec = bundle?.verified_spec?.spec;
+  const bt = bundle?.backtest;
+  const robustness = bundle?.robustness;
+  const judgment = robustness?.judgment;
+  const scorecard = robustness?.scorecard;
+  const wi = bundle?.window_info;
+  const claim = bundle?.paper_claim;
+
+  // Headline numbers — prefer D3's implementable_alpha when it exists,
+  // otherwise fall back to the baseline backtest's mean_return.
+  let implAlpha = null;
+  let tstat = null;
+  let confidence = 'unknown';
+  let signalType = '—';
+  let summaryClause = '';
+  let gapAttribution = '';
+  if (judgment) {
+    implAlpha = judgment.implementable_alpha;
+    confidence = judgment.confidence || 'unknown';
+    signalType = judgment.signal_type || '—';
+    gapAttribution = judgment.gap_attribution || '';
+    summaryClause = (judgment.summary || '').split(/\.\s/)[0] || '';
+    tstat = basisMatchedTstat(scorecard, implAlpha);
+  } else if (bt) {
+    implAlpha = bt.mean_return;
+    tstat = bt.alpha_tstat;
+    confidence = 'medium';
+    signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.96 ? 'real' : 'noise';
+  }
+
+  const tradeableLabel = tradeableLabel_(implAlpha, confidence, tstat);
+  const paperWindow = (wi && wi.paper_start)
+    ? `${wi.paper_start} to ${wi.paper_end}`
+    : (spec ? `${spec.start_date} to ${spec.end_date}` : '—');
+  const engineWindow = (wi && wi.engine_start)
+    ? `${wi.engine_start} to ${wi.engine_end}`
+    : (bt ? `${bt.start_date} to ${bt.end_date}` : '—');
+
+  return {
+    headline: {
+      paper_id: bundle.paper_id || (spec && spec.paper_id) || '—',
+      paper_title: bundle.paper_title || (spec && spec.paper_title) || '—',
+      paper_window: paperWindow,
+      engine_window: engineWindow,
+      claim: claim
+        ? { value: claim.monthly_return, tstat: claim.tstat, paper_location: claim.paper_location || '' }
+        : { value: null, tstat: null, paper_location: 'no headline claim extracted' },
+      verdict: {
+        implementable_alpha: implAlpha,
+        tstat_estimate: tstat,
+        tradeable_label: tradeableLabel,
+        signal_type: signalType,
+        gap_attribution: gapAttribution,
+        confidence,
+        summary_first_clause: summaryClause,
+      },
+    },
+  };
+}
+
+// Mirrors src/agents/synthesis/report_synthesizer._tradeable_label
+function tradeableLabel_(implAlpha, confidence, tstat) {
+  if (implAlpha === null || implAlpha === undefined) return 'PENDING';
+  if (implAlpha < 0) return 'UNDER WATER';
+  if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
+  if (implAlpha < 0.0050 || confidence === 'low') return 'BORDERLINE';
+  return 'TRADEABLE';
+}
+
+// Mirrors src/agents/synthesis/report_synthesizer._basis_matched_tstat
+function basisMatchedTstat(scorecard, implAlpha) {
+  if (!scorecard || implAlpha === null || implAlpha === undefined) return null;
+  const rows = scorecard.rows || scorecard.scenarios || [];
+  let bestT = null;
+  let bestDiff = 0.0025; // 25 bps tolerance
+  for (const r of rows) {
+    const m = r.headline_metric ?? r.headline ?? r.mean_return;
+    const t = r.tstat ?? r.alpha_tstat;
+    if (m === null || m === undefined || t === null || t === undefined) continue;
+    const diff = Math.abs(m - implAlpha);
+    if (diff < bestDiff) { bestDiff = diff; bestT = t; }
+  }
+  return bestT;
 }
 
 function resetKPIs() {
@@ -2929,11 +3023,13 @@ function renderVerdictStrip(report) {
   const popover = $('#vs-why-popover');
   if (popover) popover.textContent = v.summary_first_clause || '';
 
-  // DBT toggle
+  // DBT toggle — only relevant for the JT cached report; live runs hide it
   if (report.generalization) {
     $('#vs-dbt-toggle').hidden = false;
     const passed = report.generalization.architectural_test_passed;
     $('#vs-dbt-label').innerHTML = `Generalization (DBT 1985) ${passed ? '✓' : '✗'}`;
+  } else {
+    $('#vs-dbt-toggle').hidden = true;
   }
 
   // Topnav: the redundant verdict badge stays hidden (verdict strip carries
@@ -3407,6 +3503,7 @@ async function trackPipelineJob(jobId) {
   const t0 = performance.now();
   const seen = new Set();
   let last = null;
+  let lastBundleKeys = '';  // progressive-reveal: track which stages are present
   while (true) {
     let payload;
     try {
@@ -3428,6 +3525,16 @@ async function trackPipelineJob(jobId) {
       setStage(stage, status === 'failed' ? 'failed' : 'active');
     } else if (stage && stage === last) {
       setStage(stage, status === 'failed' ? 'failed' : 'active');
+    }
+    // Progressive reveal: re-render the bundle whenever a new stage's payload
+    // appears in result. Cheap key-set comparison avoids redundant DOM rebuilds.
+    if (payload.result) {
+      const keys = Object.keys(payload.result).sort().join(',');
+      if (keys !== lastBundleKeys) {
+        lastBundleKeys = keys;
+        applyBundle(payload.result);
+        log('SYS', `Stage data ready: ${keys}`, 'sys');
+      }
     }
     if (payload.done) {
       // Mark all stages done (or failed if signal)
