@@ -2153,3 +2153,367 @@ refreshOverrideChip();
 refreshRunButton();
 log('SYS', 'UI ready. Click Load demo or drop a PDF.', 'sys');
 setStatus('Idle — no paper loaded', 'gray');
+
+
+// ============================================================
+// Phase 5 — load report.json + render verdict strip + tabs
+// ============================================================
+
+const phase5 = {
+  report: null,
+  costCurve: [],
+};
+
+function fmtPctSigned(x, digits = 3) {
+  if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  const v = (x * 100).toFixed(digits);
+  return (x >= 0 ? '+' : '') + v + '%';
+}
+function fmtTstat(x) {
+  if (x === null || x === undefined || Number.isNaN(x)) return 't = —';
+  const sign = x >= 0 ? '+' : '';
+  return `t = ${sign}${Number(x).toFixed(2)}`;
+}
+function fmtMoney(x) {
+  if (x === null || x === undefined) return '—';
+  if (x >= 1e9) return `$${(x / 1e9).toFixed(2)}B`;
+  if (x >= 1e6) return `$${(x / 1e6).toFixed(0)}M`;
+  if (x >= 1e3) return `$${(x / 1e3).toFixed(0)}K`;
+  return `$${Math.round(x)}`;
+}
+
+async function loadPhase5Report() {
+  try {
+    const r = await fetch('/api/report');
+    if (!r.ok) {
+      log('SYS', 'No Phase 5 report available (run pipelines first).', 'sys');
+      return null;
+    }
+    const data = await r.json();
+    phase5.report = data;
+    renderVerdictStrip(data);
+    renderDiagnosisTab(data);
+    renderRobustnessTab(data);
+    renderDbtPanel(data);
+    log('SYS', `Phase 5 report loaded: ${data.headline?.paper_id ?? '—'}`, 'sys');
+    return data;
+  } catch (e) {
+    log('SYS', `Failed to load /api/report: ${e.message}`, 'err');
+    return null;
+  }
+}
+
+// ----- Verdict strip -----
+
+function renderVerdictStrip(report) {
+  const h = report.headline;
+  if (!h) return;
+  const strip = $('#verdict-strip');
+  strip.hidden = false;
+
+  $('#vs-paper-title').textContent = h.paper_title;
+  $('#vs-confidence').textContent =
+    `confidence: ${h.verdict.confidence} · ${h.verdict.signal_type}`;
+
+  // Left column — paper claim
+  const c = h.claim;
+  $('#vs-claim-value').textContent = fmtPctSigned(c.value, 3) + '/mo';
+  $('#vs-claim-tstat').textContent = fmtTstat(c.tstat);
+  $('#vs-claim-loc').textContent = c.paper_location || '';
+
+  // Right column — implementable verdict
+  const v = h.verdict;
+  $('#vs-impl-value').textContent = fmtPctSigned(v.implementable_alpha, 3) + '/mo';
+  $('#vs-impl-tstat').textContent = fmtTstat(v.tstat_estimate);
+  $('#vs-tag').textContent = v.tradeable_label || '—';
+  $('#vs-col-verdict').setAttribute('data-tag', v.tradeable_label || '');
+
+  // Window row
+  $('#vs-paper-window').textContent = h.paper_window || h.sample_paper || '—';
+  $('#vs-engine-window').textContent = h.engine_window || h.sample_engine || '—';
+  $('#vs-gap-attr').textContent = (v.gap_attribution || '—').replace(/_/g, ' ');
+
+  // Summary line
+  $('#vs-summary').textContent = v.summary_first_clause || '';
+
+  // DBT toggle
+  if (report.generalization) {
+    $('#vs-dbt-toggle').hidden = false;
+    const passed = report.generalization.architectural_test_passed;
+    $('#vs-dbt-label').innerHTML = `Generalization (DBT 1985) ${passed ? '✓' : '✗'}`;
+  }
+
+  // Top-right verdict badge in topnav (color-coded via [data-tag])
+  const badge = $('#verdict-badge');
+  badge.textContent = `Verdict: ${v.tradeable_label}`;
+  badge.setAttribute('data-tag', v.tradeable_label || '');
+}
+
+// ----- Diagnosis tab -----
+
+function renderDiagnosisTab(report) {
+  const d = report.diagnosis;
+  if (!d) return;
+
+  $('#diagnosis-pre-fix-summary').textContent = d.pre_fix_summary || '';
+  $('#diagnosis-confidence-pill').textContent = `D2 confidence: ${d.confidence ?? '—'}`;
+  $('#diagnosis-experiments-chip').textContent =
+    `${d.experiments_run ?? 0} experiment(s) · ${d.early_exit ? 'early-exited' : 'ran to cap'}`;
+  $('#diagnosis-kind-chip').textContent = `kind: ${d.primary_cause_kind ?? '—'}`;
+
+  // Primary cause card
+  const pc = $('#diagnosis-primary-cause');
+  pc.innerHTML = '';
+  pc.appendChild(el('div', { class: 'callout' }, [
+    el('strong', {}, `${d.primary_cause ?? '—'}`),
+    el('div', { class: 'sub', style: 'margin-top:6px;' }, d.primary_cause_summary || ''),
+    el('div', { class: 'sub', style: 'margin-top:8px;font-style:italic;color:var(--text-muted);' },
+       d.primary_cause_evidence || ''),
+  ]));
+
+  // Mutation log table
+  const log = $('#diagnosis-mutation-log');
+  log.innerHTML = '';
+  if (!d.mutation_results || d.mutation_results.length === 0) {
+    log.appendChild(emptyState('science', 'No mutations in the cached log.'));
+    return;
+  }
+  const t = el('table', { class: 'mut-table' });
+  t.appendChild(el('thead', {}, el('tr', {}, [
+    el('th', {}, '#'),
+    el('th', {}, 'parameter'),
+    el('th', {}, 'from → to'),
+    el('th', {}, 'pre mean'),
+    el('th', {}, 'post mean'),
+    el('th', {}, 'Δ gap'),
+    el('th', {}, 'sign-flip'),
+  ])));
+  const tb = el('tbody', {});
+  d.mutation_results.forEach((m) => {
+    tb.appendChild(el('tr', {}, [
+      el('td', { class: 'num' }, String(m.n)),
+      el('td', { class: 'code' }, m.parameter || '—'),
+      el('td', {}, `${m.from_value ?? '—'} → ${m.to_value ?? '—'}`),
+      el('td', { class: 'num' }, fmtPctSigned(m.pre_mean_return, 3)),
+      el('td', { class: 'num' }, fmtPctSigned(m.post_mean_return, 3)),
+      el('td', { class: 'num ' + (m.gap_delta > 0 ? 'closed-yes' : '') },
+         fmtPctSigned(m.gap_delta, 3)),
+      el('td', { class: m.closed_sign_flip ? 'closed-yes' : 'closed-no' },
+         m.closed_sign_flip ? '✓' : '—'),
+    ]));
+  });
+  t.appendChild(tb);
+  log.appendChild(t);
+
+  // Residual block
+  const res = $('#diagnosis-residual');
+  res.innerHTML = '';
+  res.appendChild(el('div', { class: 'callout' }, [
+    el('div', {}, [
+      el('strong', {}, `|gap| = ${fmtPctSigned(d.residual_abs_gap, 3)}/mo`),
+    ]),
+    el('div', { class: 'sub', style: 'margin-top:8px;' },
+       d.residual_gap_likely_cause || '—'),
+  ]));
+}
+
+// ----- Robustness tab -----
+
+function renderRobustnessTab(report) {
+  const r = report.robustness;
+  if (!r) return;
+
+  $('#robustness-baseline-line').textContent =
+    `Baseline ${fmtPctSigned(r.baseline_mean_return, 3)}/mo, ${fmtTstat(r.baseline_tstat)}, n=${r.baseline_n_periods}.`;
+  $('#robustness-surviving-pill').textContent =
+    `surviving ${r.n_surviving}/${r.n_tests}`;
+
+  const j = r.judgment || {};
+  $('#robustness-confidence-chip').textContent = `D3 confidence: ${j.confidence ?? '—'}`;
+
+  // Judgment narrative
+  const jbox = $('#robustness-judgment');
+  jbox.innerHTML = '';
+  jbox.appendChild(el('div', { class: 'callout' }, [
+    el('div', { style: 'font-size:18px;font-weight:600;margin-bottom:4px;' },
+       `Implementable α ≈ ${fmtPctSigned(j.implementable_alpha, 3)}/mo`),
+    el('div', { class: 'sub', style: 'margin-bottom:8px;' },
+       `signal_type: ${j.signal_type ?? '—'} · gap: ${(j.gap_attribution ?? '—').replace(/_/g, ' ')} · capacity: ${fmtMoney(j.capacity_estimate_usd)}`),
+    el('div', { class: 'sub', style: 'font-size:11.5px;font-style:italic;' },
+       j.implementable_alpha_basis || ''),
+  ]));
+  if ((j.primary_failure_modes || []).length > 0) {
+    const list = el('ul', { class: 'fragility-list', style: 'margin-top:10px;' });
+    j.primary_failure_modes.forEach((m) => list.appendChild(el('li', {}, m)));
+    jbox.appendChild(list);
+  }
+
+  // Cost slider — store curve, set ticks, attach listener
+  phase5.costCurve = r.cost_curve || [];
+  $('#robustness-cost-chip').textContent = r.cost_threshold_bps == null
+    ? `threshold: never reached (≤50bps)`
+    : `threshold: ${Number(r.cost_threshold_bps).toFixed(1)} bps`;
+  renderCostSlider();
+
+  // Static cost curve table
+  renderRowTable('cost-curve-table', phase5.costCurve, [
+    ['bps', (p) => p.bps.toFixed(0)],
+    ['mean return', (p) => fmtPctSigned(p.mean_return, 3) + '/mo'],
+    ['t-stat', (p) => fmtTstat(p.tstat).replace('t = ', '')],
+    ['surviving', (p) => p.surviving ? '✓' : '—'],
+  ]);
+
+  // Liquidity table
+  renderRowTable('liquidity-table', r.liquidity_rows || [], [
+    ['min_price', (p) => `$${p.min_price}`],
+    ['mean return', (p) => fmtPctSigned(p.mean_return, 3) + '/mo'],
+    ['t-stat', (p) => fmtTstat(p.tstat).replace('t = ', '')],
+    ['surviving', (p) => p.surviving ? '✓' : '—'],
+  ]);
+
+  // Subperiod table
+  renderRowTable('subperiod-table', r.subperiod_rows || [], [
+    ['window', (p) => p.label || p.name],
+    ['range', (p) => `${(p.start_date ?? '').slice(0,7)} → ${(p.end_date ?? '').slice(0,7)}`],
+    ['mean', (p) => fmtPctSigned(p.mean_return, 3) + '/mo'],
+    ['t-stat', (p) => fmtTstat(p.tstat).replace('t = ', '')],
+    ['n', (p) => String(p.n_periods ?? '—')],
+    ['surv', (p) => p.surviving ? '✓' : '—'],
+  ]);
+
+  // Capacity + fragility callout
+  const cf = $('#capacity-fragility');
+  cf.innerHTML = '';
+  if (r.capacity_estimate_usd) {
+    cf.appendChild(el('div', { class: 'callout' }, [
+      el('strong', {}, `Capacity (50 bps impact): ${fmtMoney(r.capacity_estimate_usd)}`),
+      el('div', { class: 'sub', style: 'margin-top:6px;' }, (r.capacity_rows[0]?.notes || '')),
+    ]));
+  }
+  if ((r.fragility_signals || []).length > 0) {
+    const list = el('ul', { class: 'fragility-list', style: 'margin-top:10px;' });
+    r.fragility_signals.forEach((s) => list.appendChild(el('li', {}, s)));
+    cf.appendChild(list);
+  }
+}
+
+function renderCostSlider() {
+  const slider = $('#cost-slider');
+  const ticks = $('#cost-slider-ticks');
+  if (phase5.costCurve.length === 0) return;
+  const xs = phase5.costCurve.map((p) => p.bps);
+  slider.min = String(Math.min(...xs));
+  slider.max = String(Math.max(...xs));
+  slider.step = '0.5';
+  slider.value = String(xs[0]);
+
+  ticks.innerHTML = '';
+  xs.forEach((x) => ticks.appendChild(el('span', {}, String(x.toFixed(0)))));
+
+  const update = () => updateCostReadout(parseFloat(slider.value));
+  slider.oninput = update;
+  update();
+}
+
+function interpCostCurve(bps) {
+  const c = phase5.costCurve;
+  if (c.length === 0) return null;
+  if (bps <= c[0].bps) return c[0];
+  if (bps >= c[c.length - 1].bps) return c[c.length - 1];
+  for (let i = 1; i < c.length; i++) {
+    if (bps <= c[i].bps) {
+      const a = c[i - 1], b = c[i];
+      const f = (bps - a.bps) / (b.bps - a.bps);
+      return {
+        bps,
+        mean_return: a.mean_return + f * (b.mean_return - a.mean_return),
+        tstat: (a.tstat ?? 0) + f * ((b.tstat ?? 0) - (a.tstat ?? 0)),
+        surviving: a.surviving && b.surviving,
+        interpolated: true,
+      };
+    }
+  }
+  return c[c.length - 1];
+}
+
+function updateCostReadout(bps) {
+  const p = interpCostCurve(bps);
+  if (!p) return;
+  $('#cost-bps-readout').textContent = `${bps.toFixed(1)}`;
+  const ret = $('#cost-ret-readout');
+  ret.textContent = fmtPctSigned(p.mean_return, 3) + '/mo';
+  ret.className = 'cost-readout-value ' + (p.mean_return >= 0 ? 'alpha-pos' : 'alpha-neg');
+  $('#cost-tstat-readout').textContent = (p.tstat == null) ? '—' : (p.tstat >= 0 ? '+' : '') + p.tstat.toFixed(2);
+  const s = $('#cost-surv-readout');
+  s.textContent = p.surviving ? 'YES' : 'NO';
+  s.className = 'cost-readout-value ' + (p.surviving ? 'surv-yes' : 'surv-no');
+}
+
+// Generic table renderer for stress test rows
+function renderRowTable(elementId, rows, columns) {
+  const root = $('#' + elementId);
+  if (!root) return;
+  root.innerHTML = '';
+  if (!rows || rows.length === 0) {
+    root.appendChild(emptyState('table_view', 'No rows.'));
+    return;
+  }
+  const t = el('table', { class: 'mut-table' });
+  t.appendChild(el('thead', {}, el('tr', {},
+    columns.map(([h]) => el('th', {}, h))
+  )));
+  const tb = el('tbody', {});
+  rows.forEach((p) => {
+    tb.appendChild(el('tr', {},
+      columns.map(([_, fn]) => el('td', { class: 'num' }, fn(p)))
+    ));
+  });
+  t.appendChild(tb);
+  root.appendChild(t);
+}
+
+// ----- DBT panel -----
+
+function renderDbtPanel(report) {
+  const g = report.generalization;
+  if (!g) return;
+  $('#dbt-paper-title').textContent = g.paper_title;
+  $('#dbt-arch-summary').textContent = g.architectural_test_summary || '';
+
+  const body = $('#dbt-panel-body');
+  body.innerHTML = '';
+  if (g.architectural_test_passed) {
+    body.appendChild(el('span', { class: 'dbt-arch-pass' }, '✓ Architectural test passed'));
+  }
+  body.appendChild(el('table', {}, el('tbody', {}, [
+    ['paper sample (declared)', `${g.extracted_lookback_months}m / ${g.extracted_holding_months}m hold`],
+    ['extracted direction', g.extracted_signal_direction],
+    ['A2 confidence', g.a2_confidence],
+    ['A3 high-severity', String(g.a3_n_high)],
+    ['B1/B2 fidelity', g.b1_b2_overall_fidelity],
+    ['engine baseline', `${fmtPctSigned(g.engine_mean_return, 3)}/mo · ${fmtTstat(g.engine_tstat)}`],
+    ['D1 verdict', g.d1_verdict],
+    ['D2 primary cause', g.d2_primary_cause],
+    ['D2 cause kind', g.d2_primary_cause_kind],
+    ['D2 residual |gap|', fmtPctSigned(g.d2_residual_abs_gap, 3)],
+    ['D3 implementable α', fmtPctSigned(g.d3_implementable_alpha, 3) + '/mo'],
+    ['D3 gap attribution', (g.d3_gap_attribution || '').replace(/_/g, ' ')],
+    ['D3 confidence', g.d3_confidence],
+  ].map(([k, v]) => el('tr', {}, [
+    el('th', {}, k),
+    el('td', { class: 'num' }, v ?? '—'),
+  ])))));
+}
+
+function setupDbtPanelToggle() {
+  const btn = $('#vs-dbt-toggle');
+  const panel = $('#dbt-panel');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+  $('#dbt-panel-close')?.addEventListener('click', () => { panel.hidden = true; });
+}
+
+// ----- bootstrap -----
+
+setupDbtPanelToggle();
+loadPhase5Report();

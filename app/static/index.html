@@ -27,6 +27,57 @@
   </div>
 </nav>
 
+<!-- Phase 5 — Headline verdict strip (above tabs, always visible once loaded) -->
+<section class="verdict-strip" id="verdict-strip" hidden>
+  <div class="vs-header">
+    <div class="vs-paper">
+      <h2 id="vs-paper-title">—</h2>
+      <span class="vs-confidence" id="vs-confidence">confidence: —</span>
+    </div>
+    <button class="vs-dbt-btn" id="vs-dbt-toggle" hidden type="button">
+      <span class="material-symbols-outlined" style="font-size:18px;">science</span>
+      <span id="vs-dbt-label">Generalization (DBT 1985)</span>
+    </button>
+  </div>
+  <div class="vs-columns">
+    <div class="vs-col vs-col-claim">
+      <div class="vs-label">PAPER CLAIMED</div>
+      <div class="vs-value" id="vs-claim-value">—</div>
+      <div class="vs-tstat" id="vs-claim-tstat">—</div>
+      <div class="vs-loc" id="vs-claim-loc">—</div>
+    </div>
+    <div class="vs-divider" aria-hidden="true">vs</div>
+    <div class="vs-col vs-col-verdict" id="vs-col-verdict">
+      <div class="vs-label">IMPLEMENTABLE ALPHA</div>
+      <div class="vs-value" id="vs-impl-value">—</div>
+      <div class="vs-tstat" id="vs-impl-tstat">—</div>
+      <div class="vs-tag-row"><span class="vs-tag" id="vs-tag">—</span></div>
+    </div>
+  </div>
+  <div class="vs-windows">
+    <span class="vs-w-item"><span class="vs-w-label">Paper sample</span> <span id="vs-paper-window">—</span></span>
+    <span class="vs-w-sep"></span>
+    <span class="vs-w-item"><span class="vs-w-label">Engine measurement</span> <span id="vs-engine-window">—</span></span>
+    <span class="vs-w-sep"></span>
+    <span class="vs-w-item"><span class="vs-w-label">Gap attribution</span> <span id="vs-gap-attr">—</span></span>
+  </div>
+  <div class="vs-summary" id="vs-summary"></div>
+</section>
+
+<!-- DBT side panel (slides in from right when triggered) -->
+<aside class="dbt-panel" id="dbt-panel" hidden>
+  <div class="dbt-panel-head">
+    <div>
+      <h3 id="dbt-paper-title">Generalization test</h3>
+      <p class="sub" id="dbt-arch-summary">—</p>
+    </div>
+    <button class="btn-ghost" id="dbt-panel-close" type="button" aria-label="close">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+  </div>
+  <div class="dbt-panel-body" id="dbt-panel-body">—</div>
+</aside>
+
 <div class="shell">
   <!-- Side nav -->
   <aside class="sidenav">
@@ -39,9 +90,9 @@
       <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Spec</a>
       <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
       <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
+      <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">science</span>Diagnosis</a>
       <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Backtest</a>
       <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Robustness</a>
-      <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">biotech</span>Diagnosis</a>
       <a href="#" data-tab="provenance"><span class="material-symbols-outlined">hub</span>Provenance</a>
     </nav>
     <div class="sidenav-foot">

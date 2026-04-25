@@ -77,8 +77,10 @@ def test_method_exists_lookup():
 # B1/B2 model routing
 # ---------------------------------------------------------------------------
 
-def test_data_mapper_uses_opus_47():
-    assert DATA_MAPPER_MODEL == "claude-opus-4-7"
+def test_data_mapper_uses_sonnet_46():
+    # B1 uses Sonnet 4.6 (was Opus 4.7) — see README. Same TPM-budget
+    # rationale as A1/A3.
+    assert DATA_MAPPER_MODEL == "claude-sonnet-4-6"
 
 
 def test_mapping_verifier_uses_haiku():

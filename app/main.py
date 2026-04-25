@@ -562,6 +562,74 @@ def diagnose_endpoint(body: DiagnoseBody):
                 "hint": "Likely missing ANTHROPIC_API_KEY, missing parquet cache, or engine failure on a mutated spec. Check server console.",
             },
         )
+# ---------------------------------------------------------------------------
+# Phase 5 — consolidated report (E1 aggregator)
+# ---------------------------------------------------------------------------
+
+REPORT_PATH = OUTPUTS_DIR / "report.json"
+
+# Build once on startup if cached artifacts are present; rebuild on demand
+# via /api/report/regenerate. The aggregator is pure-Python and finishes
+# in <100ms, so we accept the rebuild cost for fresh demos.
+def _build_report_if_possible() -> dict | None:
+    try:
+        from src.agents.synthesis import build_report
+        return build_report(OUTPUTS_DIR)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+@app.get("/api/report")
+def get_report():
+    """Return the consolidated Phase 1-4 report payload built by E1.
+
+    Builds in-memory on each request (cheap, deterministic). The on-disk
+    `outputs/report.json` is also kept in sync so the static fallback in
+    the SPA can read it directly without going through FastAPI."""
+    payload = _build_report_if_possible()
+    if payload is None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "report unavailable",
+                "hint": (
+                    "Run scripts/run_jt_full_pipeline.py and "
+                    "scripts/run_phase4_postfix.py to populate outputs/, "
+                    "then GET /api/report/regenerate."
+                ),
+            },
+        )
+    # Also persist to disk for offline / cached SPA use.
+    try:
+        REPORT_PATH.write_text(json.dumps(payload, indent=2, default=str))
+    except OSError:
+        pass
+    return JSONResponse(content=payload)
+
+
+@app.post("/api/report/regenerate")
+def regenerate_report():
+    """Force-rebuild outputs/report.json from current cached artifacts.
+
+    Used when the underlying outputs/*.json have been refreshed (e.g.,
+    after rerunning the battery on a tweaked spec). Frontend can then
+    re-fetch /api/report.
+    """
+    payload = _build_report_if_possible()
+    if payload is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "report unavailable", "hint": "outputs/ artifacts missing"},
+        )
+    REPORT_PATH.write_text(json.dumps(payload, indent=2, default=str))
+    return {
+        "ok": True,
+        "bytes": REPORT_PATH.stat().st_size,
+        "path": str(REPORT_PATH),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +638,10 @@ def diagnose_endpoint(body: DiagnoseBody):
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # Also serve outputs/report.json directly so the SPA can fall back to
+    # static fetch (handy for `python -m http.server` outside FastAPI).
+    if OUTPUTS_DIR.exists():
+        app.mount("/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
 
 
 @app.get("/")
