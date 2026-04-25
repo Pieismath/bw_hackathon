@@ -17,13 +17,19 @@ from src.specs import (
     AmbiguityFlag,
     BacktestResult,
     Criticism,
+    DivergenceDiagnosis,
+    MutationProposal,
+    MutationResult,
     PortfolioSpec,
     ProvenanceRecord,
     QuoteVerification,
     RebalanceSpec,
     ReplicationSpec,
     ReturnObservation,
+    RobustnessJudgment,
+    RobustnessScorecard,
     SignalSpec,
+    StressTestResult,
     SupportCheck,
     SupportingQuote,
     UniverseSpec,
@@ -314,6 +320,338 @@ def _build_backtest(spec: ReplicationSpec) -> BacktestResult:
     )
 
 
+def _build_robustness() -> dict[str, Any]:
+    """Demo robustness scorecard + D3 judgment, consistent with the JT-1993 backtest."""
+
+    tests: list[StressTestResult] = [
+        # --- lag family (4 rows) ---
+        StressTestResult(
+            name="lag_1d",
+            family="lag",
+            parameter_swept={"signal_lag_days": 1},
+            headline_metric=0.0045,
+            headline_tstat=2.80,
+            n_periods=312,
+            surviving=True,
+            notes="Baseline T+1 execution.",
+        ),
+        StressTestResult(
+            name="lag_2d",
+            family="lag",
+            parameter_swept={"signal_lag_days": 2},
+            headline_metric=0.0036,
+            headline_tstat=2.21,
+            n_periods=312,
+            surviving=True,
+            notes="Realistic execution: month-end close + next-day open + slippage buffer.",
+        ),
+        StressTestResult(
+            name="lag_5d",
+            family="lag",
+            parameter_swept={"signal_lag_days": 5},
+            headline_metric=0.0010,
+            headline_tstat=0.62,
+            n_periods=312,
+            surviving=False,
+            notes="Alpha decays to ~10 bps/mo by 5-day lag.",
+        ),
+        StressTestResult(
+            name="lag_10d",
+            family="lag",
+            parameter_swept={"signal_lag_days": 10},
+            headline_metric=-0.0008,
+            headline_tstat=-0.49,
+            n_periods=312,
+            surviving=False,
+            notes="Sign flips by 10 business days — short-horizon information signal.",
+        ),
+        # --- costs family (3 rows) ---
+        StressTestResult(
+            name="costs_0bps",
+            family="costs",
+            parameter_swept={"transaction_cost_bps": 0.0},
+            headline_metric=0.0045,
+            headline_tstat=2.80,
+            n_periods=312,
+            surviving=True,
+            notes="Gross-of-cost baseline.",
+        ),
+        StressTestResult(
+            name="costs_10bps",
+            family="costs",
+            parameter_swept={"transaction_cost_bps": 10.0},
+            headline_metric=0.0028,
+            headline_tstat=1.76,
+            n_periods=312,
+            surviving=True,
+            notes="10 bps round-trip per rebalance — alpha clipped but positive.",
+        ),
+        StressTestResult(
+            name="costs_25bps",
+            family="costs",
+            parameter_swept={"transaction_cost_bps": 25.0},
+            headline_metric=-0.0003,
+            headline_tstat=-0.18,
+            n_periods=312,
+            surviving=False,
+            notes="25 bps per rebalance erases the spread — alpha crosses zero around 18 bps.",
+        ),
+        # --- subperiod family (3 rows) ---
+        StressTestResult(
+            name="subperiod_pre_2008",
+            family="subperiod",
+            parameter_swept={"start_date": "1995-01-31", "end_date": "2007-12-31"},
+            headline_metric=0.0061,
+            headline_tstat=2.94,
+            n_periods=156,
+            surviving=True,
+            notes="Strong pre-crisis performance.",
+        ),
+        StressTestResult(
+            name="subperiod_crisis_2008_09",
+            family="subperiod",
+            parameter_swept={"start_date": "2008-01-31", "end_date": "2009-12-31"},
+            headline_metric=-0.0182,
+            headline_tstat=-1.41,
+            n_periods=24,
+            surviving=False,
+            notes="2009 momentum crash drives a sharp negative subperiod.",
+        ),
+        StressTestResult(
+            name="subperiod_post_2010",
+            family="subperiod",
+            parameter_swept={"start_date": "2010-01-31", "end_date": "2020-12-31"},
+            headline_metric=0.0021,
+            headline_tstat=1.18,
+            n_periods=132,
+            surviving=False,
+            notes="Post-publication regime: alpha attenuates and is no longer significant.",
+        ),
+        # --- liquidity family (2 rows) ---
+        StressTestResult(
+            name="liquidity_min_price_5",
+            family="liquidity",
+            parameter_swept={"min_price": 5.0},
+            headline_metric=0.0045,
+            headline_tstat=2.80,
+            n_periods=312,
+            surviving=True,
+            notes="Baseline universe filter.",
+        ),
+        StressTestResult(
+            name="liquidity_min_price_20",
+            family="liquidity",
+            parameter_swept={"min_price": 20.0},
+            headline_metric=0.0022,
+            headline_tstat=1.34,
+            n_periods=312,
+            surviving=False,
+            notes="Dropping low-price names cuts the spread roughly in half — alpha is concentrated in cheaper, less-liquid names.",
+        ),
+        # --- data_quality family (1 row) ---
+        StressTestResult(
+            name="data_quality_survivorship",
+            family="data_quality",
+            parameter_swept={"flag": "survivorship_bias"},
+            headline_metric=0.0045,
+            headline_tstat=2.80,
+            n_periods=312,
+            surviving=True,
+            notes="Yahoo-sourced universe excludes delisted names — survivorship bias likely inflates the headline by 10-20 bps/mo.",
+        ),
+        # --- capacity family (1 row) ---
+        StressTestResult(
+            name="capacity_50bps_impact",
+            family="capacity",
+            parameter_swept={"impact_bps": 50.0},
+            headline_metric=500_000_000.0,
+            headline_tstat=None,
+            n_periods=312,
+            surviving=True,
+            notes="Estimated AUM at which trading impact reaches 50 bps round-trip is ~$500M.",
+        ),
+    ]
+
+    n_surviving = sum(1 for t in tests if t.surviving)
+    families_run = ("lag", "costs", "subperiod", "liquidity", "data_quality", "capacity")
+    fragility_signals = (
+        "alpha sign-flips in 1 subperiod: crisis_2008_09",
+        "liquidity-sensitive: mean return falls from +0.45%/mo at min_price=5 to +0.22%/mo at min_price=20",
+        "alpha decays fast: half-life ≈ 4.5 business days",
+    )
+
+    scorecard = RobustnessScorecard(
+        baseline_mean_return=0.0045,
+        baseline_tstat=2.80,
+        baseline_n_periods=312,
+        tests=tuple(tests),
+        n_tests=len(tests),
+        n_surviving=n_surviving,
+        families_run=families_run,
+        fragility_signals=fragility_signals,
+        cost_threshold_bps=18.0,
+        lag_half_life_days=4.5,
+        capacity_estimate_usd=500_000_000.0,
+    )
+
+    judgment = RobustnessJudgment(
+        surviving_count=n_surviving,
+        n_tests=len(tests),
+        fragility_signals=fragility_signals,
+        implementable_alpha=0.0014,
+        implementable_alpha_basis=(
+            "Realistic T+2 execution (lag_2d row at 36 bps/mo) net of 25 bps round-trip costs "
+            "leaves roughly 14 bps/mo of harvestable alpha; the 5-day-lag and 25-bps-cost rows "
+            "both fall to or below zero, so anything beyond a 2-day execution window is unviable."
+        ),
+        signal_type="information_based",
+        capacity_estimate_usd=500_000_000.0,
+        primary_failure_modes=("execution_lag_decay", "subperiod_instability"),
+        gap_attribution="post_publication_decay",
+        gap_attribution_evidence=(
+            "JT report 0.95%/mo on 1965–1989; the post-2010 subperiod row delivers only 0.21%/mo "
+            "at t=1.18, while the pre-2008 row remains strong at 0.61%/mo. The headline gap is "
+            "therefore consistent with regime decay after the strategy was published, not with "
+            "implementation error in the replication itself."
+        ),
+        confidence="medium",
+        summary=(
+            "The replicated long-short momentum spread survives in 9 of 14 stress tests, with "
+            "alpha concentrated in low-lag execution and the pre-2010 sample. Two structural "
+            "fragilities dominate: alpha decays with a ~4.5-business-day half-life (so any "
+            "execution slower than T+2 forfeits most of the spread) and the 2008-09 momentum "
+            "crash flips the subperiod sign. After realistic 25-bps round-trip costs the "
+            "implementable alpha is about 14 bps/mo, with capacity around $500M AUM. The gap "
+            "between the paper and our replication is most plausibly explained by post-"
+            "publication decay in the post-2010 regime, not by a methodological error."
+        ),
+    )
+
+    return {
+        "scorecard": scorecard.model_dump(mode="json"),
+        "judgment": judgment.model_dump(mode="json"),
+    }
+
+
+def _build_diagnosis() -> dict[str, Any]:
+    """Demo D2 divergence diagnosis: paper claims 0.95%/mo, replication 0.45%/mo."""
+
+    # Mutation 1 — restrict end_date to 2000-12-31 (closes most of the gap).
+    mut1 = MutationResult(
+        proposal=MutationProposal(
+            parameter="end_date",
+            to_value="2000-12-31",
+            rationale=(
+                "JT's headline window is 1965–1989. Our 1995–2020 sample mixes the post-"
+                "publication decay regime with the pre-decay one. Restricting to pre-2000 "
+                "isolates the era closest to the paper's own."
+            ),
+            expected_direction="close",
+        ),
+        from_value_human="2020-12-31",
+        pre_abs_gap=0.0050,
+        post_abs_gap=0.0012,
+        gap_delta=0.0038,
+        pre_mean_return=0.0045,
+        post_mean_return=0.0083,
+        pre_tstat=2.80,
+        post_tstat=2.61,
+        verdict_before="diverged",
+        verdict_after="partial",
+        closed_sign_flip=False,
+        notes=(
+            "Restricting to 1995-2000 raises mean monthly return from 0.45% to 0.83%, "
+            "closing 76% of the original gap to the 0.95% claim."
+        ),
+    )
+
+    # Mutation 2 — add a 1-month skip (gap widens).
+    mut2 = MutationResult(
+        proposal=MutationProposal(
+            parameter="signal.skip_months",
+            to_value="1",
+            rationale=(
+                "JT-adjacent literature inserts a 1-month skip between formation and holding "
+                "to avoid bid-ask bounce; testing whether that explains the gap."
+            ),
+            expected_direction="unknown",
+        ),
+        from_value_human="0",
+        pre_abs_gap=0.0050,
+        post_abs_gap=0.0058,
+        gap_delta=-0.0008,
+        pre_mean_return=0.0045,
+        post_mean_return=0.0037,
+        pre_tstat=2.80,
+        post_tstat=2.31,
+        verdict_before="diverged",
+        verdict_after="diverged",
+        closed_sign_flip=False,
+        notes="Adding a 1-month skip slightly hurts the spread; not the primary cause.",
+    )
+
+    # Mutation 3 — switch to value weighting (gap widens).
+    mut3 = MutationResult(
+        proposal=MutationProposal(
+            parameter="portfolio.weighting",
+            to_value="value",
+            rationale=(
+                "Equal weighting overweights small caps where momentum is strongest. "
+                "Switching to value weighting tests whether the small-cap tilt is what "
+                "is keeping our replication low relative to JT's headline."
+            ),
+            expected_direction="unknown",
+        ),
+        from_value_human="equal",
+        pre_abs_gap=0.0050,
+        post_abs_gap=0.0059,
+        gap_delta=-0.0009,
+        pre_mean_return=0.0045,
+        post_mean_return=0.0036,
+        pre_tstat=2.80,
+        post_tstat=2.18,
+        verdict_before="diverged",
+        verdict_after="diverged",
+        closed_sign_flip=False,
+        notes=(
+            "Value weighting tightens the spread further; the small-cap tilt was actually "
+            "helping, not hurting, the headline."
+        ),
+    )
+
+    diagnosis = DivergenceDiagnosis(
+        primary_cause="sample_window_post_2000",
+        primary_cause_kind="data_window",
+        primary_cause_summary=(
+            "Restricting to pre-2000 recovers 0.83%/mo, within 12bps of the 0.95% claim."
+        ),
+        primary_cause_evidence=(
+            "Mutation end_date=2000-12-31 closes 76% of the 50bps gap (post_abs_gap=0.0012, "
+            "post_mean_return=0.0083), while skip_months and value-weighting both widen the "
+            "gap. The single mutation that restricts the sample to JT's own era is the only "
+            "one that meaningfully closes the divergence."
+        ),
+        experiments_run=3,
+        mutation_results=(mut1, mut2, mut3),
+        alternatives_tested=("end_date", "signal.skip_months", "portfolio.weighting"),
+        alternatives_ruled_out=("signal.skip_months", "portfolio.weighting"),
+        residual_abs_gap=0.0012,
+        residual_gap_likely_cause=(
+            "The 12bps residual is most plausibly attributable to universe coverage "
+            "differences: the defeatbeta panel excludes delisted names (survivorship bias) "
+            "and lacks NYSE/AMEX exchange tags, both of which JT relied on directly."
+        ),
+        confidence="high",
+        early_exit=False,
+        early_exit_reason=None,
+    )
+
+    return {
+        "diagnosis": diagnosis.model_dump(mode="json"),
+        "n_experiments": diagnosis.experiments_run,
+    }
+
+
 def build_demo_bundle() -> dict[str, Any]:
     spec = _build_spec()
     report = _build_verification_report(spec)
@@ -331,6 +669,8 @@ def build_demo_bundle() -> dict[str, Any]:
             "tstat": 3.07,
             "window": "Jan 1965 – Dec 1989 (300 months)",
         },
+        "robustness": _build_robustness(),
+        "diagnosis": _build_diagnosis(),
     }
 
 

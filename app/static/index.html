@@ -40,6 +40,8 @@
       <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
       <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
       <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Backtest</a>
+      <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Robustness</a>
+      <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">biotech</span>Diagnosis</a>
       <a href="#" data-tab="provenance"><span class="material-symbols-outlined">hub</span>Provenance</a>
     </nav>
     <div class="sidenav-foot">
@@ -65,6 +67,152 @@
       </header>
 
       <div class="grid-12">
+        <!-- Run config (dial panel) -->
+        <div class="card col-12 runconfig-card" id="runconfig-card">
+          <div class="card-head runconfig-head" id="runconfig-head">
+            <h3>Run config</h3>
+            <div class="runconfig-head-right">
+              <span class="chip" id="runconfig-chip"><span class="dot gray"></span>Defaults</span>
+              <button class="btn-ghost runconfig-toggle" id="runconfig-toggle" type="button" aria-expanded="true" title="Collapse / expand">
+                <span class="material-symbols-outlined chev" id="runconfig-chev">expand_less</span>
+              </button>
+            </div>
+          </div>
+          <div class="runconfig-body" id="runconfig-body">
+            <p class="runconfig-intro">Override the extracted <span class="mono">ReplicationSpec</span> before the pipeline runs. Changes live-update the Spec tab; click <span class="mono">Run pipeline</span> to fire A1 → A2 → A3 → backtest → robustness → diagnosis on the selected paper.</p>
+
+            <!-- Group 1: Universe -->
+            <div class="runconfig-group">
+              <div class="runconfig-group-head">Universe</div>
+              <div class="runconfig-grid">
+                <label class="dial">
+                  <span class="dial-label">universe.min_price <span class="dial-help" title="Excludes penny-stock noise; $5 is a common floor.">?</span></span>
+                  <input type="number" id="dial-min-price" min="0" step="0.5" value="5" />
+                </label>
+                <label class="dial">
+                  <span class="dial-label">start_date <span class="dial-help" title="Paper's original window. If the engine substitutes a different window because the paper predates the data panel, the Backtest tab will show the substitution.">?</span></span>
+                  <input type="date" id="dial-start-date" />
+                </label>
+                <label class="dial">
+                  <span class="dial-label">end_date <span class="dial-help" title="Paper's original window. If the engine substitutes a different window because the paper predates the data panel, the Backtest tab will show the substitution.">?</span></span>
+                  <input type="date" id="dial-end-date" />
+                </label>
+                <div class="dial dial-wide">
+                  <span class="dial-label">universe.exchanges <span class="dial-help" title="Yahoo panel lacks exchange tags; this is advisory — the engine falls back to the full US universe regardless, but a fidelity warning will appear.">?</span></span>
+                  <div class="dial-checks" id="dial-exchanges">
+                    <label><input type="checkbox" value="NYSE" /> NYSE</label>
+                    <label><input type="checkbox" value="AMEX" /> AMEX</label>
+                    <label><input type="checkbox" value="NASDAQ" /> NASDAQ</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group 2: Methodology -->
+            <div class="runconfig-group">
+              <div class="runconfig-group-head">Methodology</div>
+              <div class="runconfig-grid">
+                <label class="dial">
+                  <span class="dial-label">signal.lookback_months <span class="dial-help" title="JT grid.">?</span></span>
+                  <select id="dial-lookback">
+                    <option value="3">3</option>
+                    <option value="6" selected>6</option>
+                    <option value="9">9</option>
+                    <option value="12">12</option>
+                  </select>
+                </label>
+                <label class="dial">
+                  <span class="dial-label">signal.skip_months <span class="dial-help" title="Panel A vs Panel B.">?</span></span>
+                  <select id="dial-skip">
+                    <option value="0" selected>0</option>
+                    <option value="1">1</option>
+                  </select>
+                </label>
+                <label class="dial">
+                  <span class="dial-label">rebalance.holding_period_months</span>
+                  <select id="dial-holding">
+                    <option value="3">3</option>
+                    <option value="6" selected>6</option>
+                    <option value="9">9</option>
+                    <option value="12">12</option>
+                  </select>
+                </label>
+                <label class="dial">
+                  <span class="dial-label">portfolio.n_buckets <span class="dial-help" title="Quintile / decile / vigintile.">?</span></span>
+                  <select id="dial-buckets">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="20">20</option>
+                  </select>
+                </label>
+                <div class="dial">
+                  <span class="dial-label">portfolio.weighting</span>
+                  <div class="dial-radios" id="dial-weighting">
+                    <label><input type="radio" name="weighting" value="equal" checked /> equal</label>
+                    <label><input type="radio" name="weighting" value="value" /> value</label>
+                  </div>
+                </div>
+                <label class="dial">
+                  <span class="dial-label">portfolio.long_bucket</span>
+                  <input type="number" id="dial-long-bucket" min="1" max="10" value="10" />
+                </label>
+                <label class="dial">
+                  <span class="dial-label">portfolio.short_bucket</span>
+                  <input type="number" id="dial-short-bucket" min="1" max="10" value="1" />
+                </label>
+              </div>
+            </div>
+
+            <!-- Group 3: Execution -->
+            <div class="runconfig-group">
+              <div class="runconfig-group-head">Execution</div>
+              <div class="runconfig-grid">
+                <label class="dial">
+                  <span class="dial-label">transaction_cost_bps <span class="dial-help" title="Sent at the request level (not on ReplicationSpec).">?</span></span>
+                  <select id="dial-tcost">
+                    <option value="0" selected>0</option>
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                  </select>
+                </label>
+                <label class="dial">
+                  <span class="dial-label">rebalance.execution_lag_days</span>
+                  <select id="dial-lag">
+                    <option value="0">0</option>
+                    <option value="1" selected>1</option>
+                    <option value="2">2</option>
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <!-- Group 4: Misc -->
+            <div class="runconfig-group">
+              <div class="runconfig-group-head">Misc</div>
+              <div class="runconfig-grid">
+                <label class="dial dial-checkbox">
+                  <input type="checkbox" id="dial-nyse-bp" />
+                  <span class="dial-label">use_nyse_breakpoints <span class="dial-help" title="Paper-accurate breakpoints use NYSE-only; Yahoo lacks this tag so this is advisory/flag-only. Will show a fidelity note.">?</span></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="runconfig-foot">
+              <select class="runconfig-paper-select" id="runconfig-paper-select" title="Paper to run the pipeline on">
+                <option value="">— no paper selected —</option>
+              </select>
+              <button class="btn-primary" id="run-pipeline-btn" type="button" disabled title="Upload or pick a paper first">
+                <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
+                Run pipeline
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Ingestion -->
         <div class="card col-8">
           <div class="card-head">
@@ -118,6 +266,9 @@
           <h1>Replication spec</h1>
           <p class="sub">Structured Pydantic contract produced by A1 (methodology extractor) and audited by A2. Every non-default is tied to a verbatim quote.</p>
         </div>
+        <div class="head-meta">
+          <span class="meta-pill hidden" id="override-chip" title="Click to see overridden fields">Dial overrides active: 0 fields</span>
+        </div>
       </header>
       <div id="spec-body"></div>
     </section>
@@ -153,6 +304,28 @@
         </div>
       </header>
       <div id="backtest-body"></div>
+    </section>
+
+    <!-- ROBUSTNESS -->
+    <section class="tab hidden" data-tab="robustness">
+      <header class="page-head">
+        <div>
+          <h1>Robustness battery (Phase 4)</h1>
+          <p class="sub">Six families of stress tests mutate the spec and rerun the canonical engine; D3 (Sonnet) interprets the scorecard into an implementability verdict.</p>
+        </div>
+      </header>
+      <div id="robustness-body"></div>
+    </section>
+
+    <!-- DIAGNOSIS -->
+    <section class="tab hidden" data-tab="diagnosis">
+      <header class="page-head">
+        <div>
+          <h1>Divergence diagnosis (D2)</h1>
+          <p class="sub">When the engine disagrees with the paper, D2 proposes one-field mutations, reruns the engine, and attributes the residual gap to a concrete cause.</p>
+        </div>
+      </header>
+      <div id="diagnosis-body"></div>
     </section>
 
     <!-- PROVENANCE -->
