@@ -2964,22 +2964,24 @@ function renderDiagnosis(payload, paperClaim) {
     root.appendChild(diagnosisWaitingState(paperClaim));
     return;
   }
-  // Detect placeholder-claim diagnoses (Poterba-Summers, Lo-MacKinlay, AQR
-  // streaks — papers that don't make a tradeable headline claim). The
-  // diagnosis output reads incoherently because D2 ran against a fabricated
-  // 0.0%/mo target and "gap closure" is mathematically meaningless. Render
-  // a clean explainer instead of the confused experiment log.
+  // Detect non-tradeable-claim papers (Poterba-Summers, Lo-MacKinlay, AQR
+  // streaks). When the claim is a placeholder OR the paper_id matches a
+  // known no-tradeable-target keyword, render the clean explainer instead
+  // of the confused experiment log — even when D2 already ran (e.g. cached
+  // diagnoses from before the backend skip was added).
   const placeholderClaim =
     !paperClaim ||
     paperClaim.monthly_return == null ||
     (paperClaim.monthly_return === 0 && (paperClaim.tstat == null || paperClaim.tstat === 0));
-  // Heuristic: if D2 early-exited with zero useful experiments, the
-  // diagnosis is also untrustworthy. Combined with placeholder claim →
-  // render the not-applicable state.
-  const noUsefulExperiments =
-    diagnosis.early_exit &&
-    (!diagnosis.mutation_results || diagnosis.mutation_results.every((m) => m.gap_delta === 0));
-  if (placeholderClaim && noUsefulExperiments) {
+  const NO_TARGET_KEYWORDS = [
+    'lo_mackinlay', 'mackinlay', 'random_walk',
+    'poterba_summers', 'mean_reversion',
+    'streaky_returns', 'streaks',
+    'variance_ratio_test', 'specification_test',
+  ];
+  const pid = (state.bundle?.verified_spec?.spec?.paper_id || state.bundle?.paper_id || '').toLowerCase();
+  const isNoTargetPaper = NO_TARGET_KEYWORDS.some((k) => pid.includes(k));
+  if (placeholderClaim || isNoTargetPaper) {
     root.appendChild(diagnosisNotApplicableState(paperClaim));
     return;
   }

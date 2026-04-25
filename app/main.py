@@ -765,23 +765,38 @@ def robustness(body: RobustnessBody):
         if extra_flags:
             flags = list(baseline.data_quality_flags) + extra_flags
             baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
-        # D3 needs a PaperClaim for context. If the caller didn't supply one
-        # (the body schema doesn't model it), fabricate a minimal placeholder
-        # so the judgment can still ground its narrative in the scorecard.
-        placeholder_claim = PaperClaim(
-            claim_id="placeholder_headline",
-            metric="monthly_long_short_return",
-            claimed_value=baseline.mean_return,
-            claimed_tstat=baseline.alpha_tstat,
-            claimed_units="decimal_per_month",
-            paper_location="caller_did_not_supply_claim",
-            supporting_quote=SupportingQuote(
-                text="placeholder claim — caller did not supply paper claim",
-                page=1,
-                verified=False,
-                match_confidence=0.0,
-            ),
-        )
+        # D3 needs a PaperClaim for context. Prefer spec.headline_claim
+        # (A1's extracted paper number) so the judgment compares against
+        # the paper's real claim, not a self-referential baseline-as-claim
+        # placeholder that produces a zero gap by construction. Only fall
+        # back to a baseline-shaped placeholder when A1 didn't extract a
+        # headline_claim at all.
+        hc = getattr(spec, "headline_claim", None)
+        if hc is not None and getattr(hc, "monthly_return", None) is not None:
+            placeholder_claim = PaperClaim(
+                claim_id="spec_headline_claim",
+                metric="monthly_long_short_return",
+                claimed_value=float(hc.monthly_return),
+                claimed_tstat=hc.t_stat,
+                claimed_units="decimal_per_month",
+                paper_location=hc.paper_location or "spec.headline_claim",
+                supporting_quote=hc.supporting_quote,
+            )
+        else:
+            placeholder_claim = PaperClaim(
+                claim_id="placeholder_headline",
+                metric="monthly_long_short_return",
+                claimed_value=baseline.mean_return,
+                claimed_tstat=baseline.alpha_tstat,
+                claimed_units="decimal_per_month",
+                paper_location="caller_did_not_supply_claim",
+                supporting_quote=SupportingQuote(
+                    text="placeholder claim — caller did not supply paper claim",
+                    page=1,
+                    verified=False,
+                    match_confidence=0.0,
+                ),
+            )
         # D3 LLM call. Retry once on Anthropic 529 (overload); if it still
         # fails, return the scorecard alone so the user keeps the 90s of
         # battery work — the deterministic part is what costs time, the LLM
@@ -914,27 +929,32 @@ def diagnose_endpoint(body: DiagnoseBody):
         # Refuse to run D2 on placeholder claims AND on known non-tradeable
         # paper classes. Specification-test papers (Lo-MacKinlay 1988,
         # Poterba-Summers 1988) and factor-tilt Sharpe-claim papers (AQR
-        # streaks) don't report a tradeable monthly L/S return. Their
-        # headline_claim is either null, a fabricated 0.0%/mo, or — worst
-        # case — A1 misreads a VR statistic as a monthly return and emits
-        # a non-zero placeholder. The hardcoded NO_D2_PAPER_IDS set catches
-        # the latter so D2 skips reliably regardless of what A1 extracted.
-        NO_D2_PAPER_IDS = {
-            "lo_mackinlay_1988",
-            "lo_mackinlay_1988_random_walks",
-            "lo_mackinlay_1988_stock_market_prices_do_not_follow_random_walks",
-            "poterba_summers_1988",
-            "poterba_summers_1988_mean_reversion_in_stock_prices",
-            "aqr_2024_hidden_value_of_streaky_returns",
-            "aqr_psg_2025_streaky_returns",
-        }
+        # streaks) don't report a tradeable monthly L/S return.
+        #
+        # Match by SUBSTRING rather than exact paper_id — A1 generates
+        # paper_id values from the paper title and they vary across runs
+        # (e.g. lo_mackinlay_1988 vs
+        # lo_mackinlay_1988_stock_market_prices_do_not_follow_random_walks_evidence).
+        # Substring keywords catch all the variants reliably.
+        NO_D2_PAPER_KEYWORDS = (
+            "lo_mackinlay",
+            "mackinlay",
+            "random_walk",        # matches random_walk and random_walks
+            "poterba_summers",
+            "mean_reversion",
+            "streaky_returns",
+            "streaks",
+            "variance_ratio_test",
+            "specification_test",
+        )
+        pid_lower = (spec.paper_id or "").lower()
         claimed_monthly = body.paper_claim_monthly_return
         claimed_tstat = body.paper_claim_tstat
         is_placeholder = (
             claimed_monthly is None
             or (claimed_monthly == 0.0 and (claimed_tstat is None or claimed_tstat == 0.0))
         )
-        is_no_target_paper = spec.paper_id in NO_D2_PAPER_IDS
+        is_no_target_paper = any(k in pid_lower for k in NO_D2_PAPER_KEYWORDS)
         if is_placeholder or is_no_target_paper:
             reason = (
                 "Specification-test or factor-tilt paper — does not report a "
@@ -1198,20 +1218,40 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "engine", "done")
             _set_partial(job_id, bundle)
 
-            placeholder_claim = PaperClaim(
-                claim_id=f"{paper_id}_baseline",
-                metric="long_short_monthly_return",
-                claimed_value=0.0,
-                claimed_tstat=None,
-                claimed_units="fraction_per_month",
-                paper_location="N/A (live upload, placeholder claim)",
-                supporting_quote=SupportingQuote(text="placeholder", page=1),
-            )
+            # Build the D2/D3 PaperClaim from the spec's headline_claim
+            # when A1 extracted one — otherwise D2 measures the gap from
+            # zero (placeholder) instead of from the paper's actual
+            # claimed value, which inverts mutation scoring and produces
+            # nonsensical "no_single_cause_identified" diagnoses (the
+            # Cheng-Hameed-Subrahmanyam-Titman 2017 short-term reversals
+            # paper had a real headline of 1.683%/mo t=7.80 but D2 was
+            # diagnosing the gap from 0.0%).
+            hc = getattr(clipped, "headline_claim", None)
+            if hc is not None and getattr(hc, "monthly_return", None) is not None:
+                paper_claim = PaperClaim(
+                    claim_id=f"{paper_id}_headline",
+                    metric="long_short_monthly_return",
+                    claimed_value=float(hc.monthly_return),
+                    claimed_tstat=hc.t_stat,
+                    claimed_units="fraction_per_month",
+                    paper_location=hc.paper_location or "headline_claim from A1",
+                    supporting_quote=hc.supporting_quote,
+                )
+            else:
+                paper_claim = PaperClaim(
+                    claim_id=f"{paper_id}_baseline",
+                    metric="long_short_monthly_return",
+                    claimed_value=0.0,
+                    claimed_tstat=None,
+                    claimed_units="fraction_per_month",
+                    paper_location="N/A (A1 did not extract a headline claim)",
+                    supporting_quote=SupportingQuote(text="placeholder", page=1),
+                )
 
             _set_stage(job_id, "d2", "active")
             diagnosis = diagnose(
                 spec=clipped, baseline_result=baseline,
-                claim=placeholder_claim, store=store,
+                claim=paper_claim, store=store,
                 max_experiments=3, use_cache=True,
             )
             bundle["diagnosis"] = diagnosis.model_dump(mode="json")
@@ -1255,7 +1295,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
 
             _set_stage(job_id, "d3", "active")
             judgment = judge(
-                scorecard=scorecard, baseline=baseline, claim=placeholder_claim,
+                scorecard=scorecard, baseline=baseline, claim=paper_claim,
                 use_cache=True,
             )
             bundle["robustness"]["judgment"] = judgment.model_dump(mode="json")
