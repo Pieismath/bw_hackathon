@@ -91,7 +91,11 @@ async def _catchall_json_handler(request, exc):
 @app.get("/api/demo")
 def get_demo():
     from app.demo_fixture import build_demo_bundle
-    return build_demo_bundle()
+    # Sanitize NaN / Inf before serialization. The live snapshot contains
+    # real engine output that may carry NaN t-stats (degenerate windows)
+    # or +inf cost_threshold_bps (alpha survives every cost level), and
+    # starlette's JSONResponse uses allow_nan=False — would 500 the demo.
+    return _sanitize_for_json(build_demo_bundle())
 
 
 # ---------------------------------------------------------------------------
