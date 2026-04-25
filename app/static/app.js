@@ -1116,10 +1116,60 @@ async function refreshPapers() {
   }
 }
 
+// ---------- hardcoded paper-claim fallbacks ----------
+//
+// Some papers report their headline as a Sharpe ratio, regression alpha, or
+// cross-asset combo statistic rather than a clean monthly long-short return.
+// A1 returns headline_claim=None for those (correctly — fabricating a number
+// would be worse), which leaves the verdict strip on `NO PAPER TARGET` and
+// the gap-attribution columns empty.
+//
+// For papers where we have a verified-from-the-PDF monthly L/S number that
+// A1 just couldn't shape, this map injects it at bundle-apply time. Each
+// entry must cite the exact table / passage so the value is auditable.
+//
+// Schema: { monthly_return (decimal), tstat, window, paper_location, metric }
+const PAPER_CLAIM_FALLBACKS = {
+  // Asness, Moskowitz, Pedersen 2013 — "Value and Momentum Everywhere".
+  // Paper headline is the global all-asset combo Sharpe ratio (~1.6+);
+  // A1 cannot produce a single (monthly_return, t_stat) from that. Table 1
+  // does report a US stocks 50/50 Value+Momentum combo with mean monthly
+  // excess return of ~0.81% at t ≈ 4.84 over Jan 1972 – Jul 2011, which is
+  // the closest stocks-only L/S claim that maps onto the engine's universe.
+  asness_moskowitz_pedersen_2013_value_and_momentum_everywhere: {
+    monthly_return: 0.0081,
+    tstat: 4.84,
+    window: 'Jan 1972 – Jul 2011',
+    paper_location: 'Table 1, US Stocks Value+Momentum 50/50 combo (full sample)',
+    metric: 'monthly long-short return',
+    overridden_by_user: false,
+    hardcoded_fallback: true,
+  },
+};
+
 // ---------- bundle render ----------
 
 function applyBundle(bundle) {
   state.bundle = bundle;
+  // Inject a verified hardcoded paper claim for papers whose headline isn't
+  // in the (monthly_return, t_stat) shape A1 requires. Runs before any tab
+  // render so renderVerdictStrip / renderBacktest / renderDiagnosis all see
+  // it and the comparison table populates instead of NO PAPER TARGET.
+  const fallback = bundle.paper_id && PAPER_CLAIM_FALLBACKS[bundle.paper_id];
+  if (fallback && !bundle.paper_claim) {
+    bundle.paper_claim = { ...fallback };
+    if (bundle.verified_spec && bundle.verified_spec.spec && !bundle.verified_spec.spec.headline_claim) {
+      bundle.verified_spec.spec.headline_claim = {
+        metric: fallback.metric,
+        monthly_return: fallback.monthly_return,
+        t_stat: fallback.tstat,
+        window_label: fallback.window,
+        paper_location: fallback.paper_location,
+        supporting_quote: null,
+      };
+    }
+    log('SYS', `Paper headline hardcoded for ${bundle.paper_id} (A1 returned no claim — paper reports Sharpe-style headline; using ${(fallback.monthly_return * 100).toFixed(2)}%/mo, t=${fallback.tstat.toFixed(2)} from ${fallback.paper_location}).`, 'sys');
+  }
   // Pristine A1 output drives both the dial form seeding and the override diff.
   // Take a deep clone so further dial reads don't mutate the bundle.
   if (bundle.verified_spec && bundle.verified_spec.spec) {
