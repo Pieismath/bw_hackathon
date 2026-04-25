@@ -1577,7 +1577,7 @@ function renderBacktest(bt, paperClaim) {
     ]),
   ]));
   const wrap = el('div', { class: 'chart-wrap chart-wrap-tall' });
-  const eq = new EquityChart(bt.returns);
+  const eq = new EquityChart(bt.returns, { showRegimes: shouldShowRegimes(state.bundle) });
   wrap.appendChild(eq.root);
   chart.appendChild(wrap);
   root.appendChild(chart);
@@ -1853,6 +1853,25 @@ const REGIMES = [
   { from: '2009-03-31', to: '2009-06-30', label: '2009 momentum crash' },
 ];
 
+// Regime markers (Dot-com reversal, 2009 momentum crash) only make sense
+// for cross-sectional momentum strategies — they're meaningless or
+// misleading on reversal, value, factor-of-factors, or non-equity papers.
+// Allowlist of paper_id values that should show the markers.
+const MOMENTUM_PAPER_IDS = new Set([
+  'jegadeesh_titman_1993',
+  'asness_moskowitz_pedersen_2013',
+  'carhart_1997',
+  'rouwenhorst_1998',
+  'novy_marx_2012',
+  'hong_lim_stein_2000',
+  'moskowitz_grinblatt_1999',
+]);
+
+function shouldShowRegimes(bundle) {
+  const pid = bundle?.verified_spec?.spec?.paper_id ?? bundle?.paper_id;
+  return pid != null && MOMENTUM_PAPER_IDS.has(pid);
+}
+
 function svgEl(tag, attrs = {}) {
   const n = document.createElementNS(SVG_NS, tag);
   Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
@@ -1860,8 +1879,9 @@ function svgEl(tag, attrs = {}) {
 }
 
 class EquityChart {
-  constructor(returns) {
+  constructor(returns, opts = {}) {
     this.returns = returns || [];
+    this.showRegimes = opts.showRegimes !== false;
     this.cum = [];
     let s = 0;
     this.returns.forEach((r) => { s += r.ret; this.cum.push(s); });
@@ -2005,7 +2025,7 @@ class EquityChart {
     this.ddMin = Math.min(...ddSlice, -0.01);
     const ddTop = this.padT + this.eqH + this.gap;
 
-    REGIMES.forEach((rg) => {
+    if (this.showRegimes) REGIMES.forEach((rg) => {
       const i0 = this.returns.findIndex((r) => r.period_end >= rg.from);
       let i1 = this.returns.findIndex((r) => r.period_end > rg.to);
       if (i1 === -1) i1 = this.returns.length;
