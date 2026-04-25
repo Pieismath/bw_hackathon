@@ -18,9 +18,10 @@ from src.specs import AdversarialCritique, Criticism
 JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
 
 
-def test_reviewer_uses_opus_47():
-    # A3 requires careful reading of the whole paper; Opus is the locked choice.
-    assert ADVERSARIAL_REVIEWER_MODEL == "claude-opus-4-7"
+def test_reviewer_uses_sonnet_46():
+    # A3 uses Sonnet 4.6 (was Opus 4.7) — see README. Same TPM-budget
+    # rationale as A1; A3 also reads the full paper.
+    assert ADVERSARIAL_REVIEWER_MODEL == "claude-sonnet-4-6"
 
 
 def test_critique_schema_enforces_exactly_three():

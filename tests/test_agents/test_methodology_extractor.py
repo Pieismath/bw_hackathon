@@ -62,10 +62,12 @@ def test_format_pdf_strips_trailing_whitespace_per_page():
 # Configuration sanity
 # ---------------------------------------------------------------------------
 
-def test_extractor_uses_opus_47():
-    # The spec locks Opus 4.7 for A1. Downgrading to Haiku would reduce
-    # reading comprehension on 28-page papers — catch in CI.
-    assert METHODOLOGY_EXTRACTOR_MODEL == "claude-opus-4-7"
+def test_extractor_uses_sonnet_46():
+    # A1 uses Sonnet 4.6 — see README: swapped from Opus 4.7 to stay inside
+    # typical org TPM limits on long papers (Fama-French 1993 hits ~45k
+    # input tokens, blowing 30k-TPM Opus quota). Downgrading to Haiku
+    # would reduce reading comprehension on 28-page papers — catch in CI.
+    assert METHODOLOGY_EXTRACTOR_MODEL == "claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,57 @@
   </div>
 </nav>
 
+<!-- Phase 5 — Headline verdict strip (above tabs, always visible once loaded) -->
+<section class="verdict-strip" id="verdict-strip" hidden>
+  <div class="vs-header">
+    <div class="vs-paper">
+      <h2 id="vs-paper-title">—</h2>
+      <span class="vs-confidence" id="vs-confidence">confidence: —</span>
+    </div>
+    <button class="vs-dbt-btn" id="vs-dbt-toggle" hidden type="button">
+      <span class="material-symbols-outlined" style="font-size:18px;">science</span>
+      <span id="vs-dbt-label">Generalization (DBT 1985)</span>
+    </button>
+  </div>
+  <div class="vs-columns">
+    <div class="vs-col vs-col-claim">
+      <div class="vs-label">PAPER CLAIMED</div>
+      <div class="vs-value" id="vs-claim-value">—</div>
+      <div class="vs-tstat" id="vs-claim-tstat">—</div>
+      <div class="vs-loc" id="vs-claim-loc">—</div>
+    </div>
+    <div class="vs-divider" aria-hidden="true">vs</div>
+    <div class="vs-col vs-col-verdict" id="vs-col-verdict">
+      <div class="vs-label">IMPLEMENTABLE ALPHA</div>
+      <div class="vs-value" id="vs-impl-value">—</div>
+      <div class="vs-tstat" id="vs-impl-tstat">—</div>
+      <div class="vs-tag-row"><span class="vs-tag" id="vs-tag">—</span></div>
+    </div>
+  </div>
+  <div class="vs-windows">
+    <span class="vs-w-item"><span class="vs-w-label">Paper sample</span> <span id="vs-paper-window">—</span></span>
+    <span class="vs-w-sep"></span>
+    <span class="vs-w-item"><span class="vs-w-label">Engine measurement</span> <span id="vs-engine-window">—</span></span>
+    <span class="vs-w-sep"></span>
+    <span class="vs-w-item"><span class="vs-w-label">Gap attribution</span> <span id="vs-gap-attr">—</span></span>
+  </div>
+  <div class="vs-summary" id="vs-summary"></div>
+</section>
+
+<!-- DBT side panel (slides in from right when triggered) -->
+<aside class="dbt-panel" id="dbt-panel" hidden>
+  <div class="dbt-panel-head">
+    <div>
+      <h3 id="dbt-paper-title">Generalization test</h3>
+      <p class="sub" id="dbt-arch-summary">—</p>
+    </div>
+    <button class="btn-ghost" id="dbt-panel-close" type="button" aria-label="close">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+  </div>
+  <div class="dbt-panel-body" id="dbt-panel-body">—</div>
+</aside>
+
 <div class="shell">
   <!-- Side nav -->
   <aside class="sidenav">
@@ -39,7 +90,9 @@
       <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Spec</a>
       <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
       <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
+      <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">science</span>Diagnosis</a>
       <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Backtest</a>
+      <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Robustness</a>
       <a href="#" data-tab="provenance"><span class="material-symbols-outlined">hub</span>Provenance</a>
     </nav>
     <div class="sidenav-foot">
@@ -153,6 +206,115 @@
         </div>
       </header>
       <div id="backtest-body"></div>
+    </section>
+
+    <!-- DIAGNOSIS (Phase 5) -->
+    <section class="tab hidden" data-tab="diagnosis">
+      <header class="page-head">
+        <div>
+          <h1>Divergence diagnosis</h1>
+          <p class="sub" id="diagnosis-pre-fix-summary">—</p>
+        </div>
+        <div class="head-meta">
+          <span class="meta-pill" id="diagnosis-confidence-pill">—</span>
+        </div>
+      </header>
+      <div class="card">
+        <div class="card-head">
+          <h3>Primary cause</h3>
+          <span class="chip" id="diagnosis-kind-chip">—</span>
+        </div>
+        <div id="diagnosis-primary-cause"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Mutation log</h3>
+          <span class="chip" id="diagnosis-experiments-chip">—</span>
+        </div>
+        <p class="sub" style="margin-bottom:8px;">Every row is an actual engine rerun. The LLM proposes, code applies, the canonical engine measures.</p>
+        <div id="diagnosis-mutation-log"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Residual gap</h3>
+        </div>
+        <div id="diagnosis-residual"></div>
+      </div>
+    </section>
+
+    <!-- ROBUSTNESS (Phase 5) -->
+    <section class="tab hidden" data-tab="robustness">
+      <header class="page-head">
+        <div>
+          <h1>Robustness battery</h1>
+          <p class="sub" id="robustness-baseline-line">—</p>
+        </div>
+        <div class="head-meta">
+          <span class="meta-pill" id="robustness-surviving-pill">—</span>
+        </div>
+      </header>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>D3 implementable-alpha verdict</h3>
+          <span class="chip" id="robustness-confidence-chip">—</span>
+        </div>
+        <div id="robustness-judgment"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Transaction cost sensitivity</h3>
+          <span class="chip" id="robustness-cost-chip">—</span>
+        </div>
+        <p class="sub" style="margin-bottom:14px;">Drag the slider to see how each cost level erodes the headline alpha. Points are real engine reruns at <code>0/5/10/25/50 bps</code>; the slider linearly interpolates between them.</p>
+        <div class="cost-slider-wrap">
+          <div class="cost-readout">
+            <div class="cost-readout-cell">
+              <div class="cost-readout-label">cost (bps)</div>
+              <div class="cost-readout-value" id="cost-bps-readout">—</div>
+            </div>
+            <div class="cost-readout-cell">
+              <div class="cost-readout-label">monthly return</div>
+              <div class="cost-readout-value" id="cost-ret-readout">—</div>
+            </div>
+            <div class="cost-readout-cell">
+              <div class="cost-readout-label">t-stat (NW)</div>
+              <div class="cost-readout-value" id="cost-tstat-readout">—</div>
+            </div>
+            <div class="cost-readout-cell">
+              <div class="cost-readout-label">survives?</div>
+              <div class="cost-readout-value" id="cost-surv-readout">—</div>
+            </div>
+          </div>
+          <input type="range" id="cost-slider" min="0" max="50" step="1" value="0" />
+          <div class="cost-slider-ticks" id="cost-slider-ticks"></div>
+        </div>
+        <div id="cost-curve-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Liquidity sensitivity</h3>
+          <span class="chip">min_price filter sweep</span>
+        </div>
+        <div id="liquidity-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Subperiod stability</h3>
+          <span class="chip">11 windows</span>
+        </div>
+        <div id="subperiod-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Capacity + fragility signals</h3>
+        </div>
+        <div id="capacity-fragility"></div>
+      </div>
     </section>
 
     <!-- PROVENANCE -->
