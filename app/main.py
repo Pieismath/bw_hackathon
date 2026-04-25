@@ -911,29 +911,46 @@ def diagnose_endpoint(body: DiagnoseBody):
                 },
             )
 
-        # Refuse to run D2 on placeholder claims. Specification-test papers
-        # (Lo-MacKinlay, Poterba-Summers) and Sharpe-claim papers (AQR streaks)
-        # don't report a tradeable monthly L/S return — their headline_claim
-        # is either null or a fabricated 0.0%/mo. Running D2 against a
-        # placeholder produces incoherent "every mutation has gap_delta=0"
-        # output and burns LLM tokens. Skip cleanly so the frontend can
-        # render the "not applicable" state.
+        # Refuse to run D2 on placeholder claims AND on known non-tradeable
+        # paper classes. Specification-test papers (Lo-MacKinlay 1988,
+        # Poterba-Summers 1988) and factor-tilt Sharpe-claim papers (AQR
+        # streaks) don't report a tradeable monthly L/S return. Their
+        # headline_claim is either null, a fabricated 0.0%/mo, or — worst
+        # case — A1 misreads a VR statistic as a monthly return and emits
+        # a non-zero placeholder. The hardcoded NO_D2_PAPER_IDS set catches
+        # the latter so D2 skips reliably regardless of what A1 extracted.
+        NO_D2_PAPER_IDS = {
+            "lo_mackinlay_1988",
+            "lo_mackinlay_1988_random_walks",
+            "lo_mackinlay_1988_stock_market_prices_do_not_follow_random_walks",
+            "poterba_summers_1988",
+            "poterba_summers_1988_mean_reversion_in_stock_prices",
+            "aqr_2024_hidden_value_of_streaky_returns",
+            "aqr_psg_2025_streaky_returns",
+        }
         claimed_monthly = body.paper_claim_monthly_return
         claimed_tstat = body.paper_claim_tstat
         is_placeholder = (
             claimed_monthly is None
             or (claimed_monthly == 0.0 and (claimed_tstat is None or claimed_tstat == 0.0))
         )
-        if is_placeholder:
+        is_no_target_paper = spec.paper_id in NO_D2_PAPER_IDS
+        if is_placeholder or is_no_target_paper:
+            reason = (
+                "Specification-test or factor-tilt paper — does not report a "
+                "tradeable monthly long-short return. D2 compares the engine's "
+                "replication against the paper's headline; without one, "
+                "gap-closure is mathematically ill-defined."
+                if is_no_target_paper else
+                "Paper does not report a tradeable monthly long-short return. "
+                "D2 compares the engine's replication against the paper's headline; "
+                "without one, gap-closure is mathematically ill-defined."
+            )
             return _sanitize_for_json({
                 "diagnosis": None,
                 "n_experiments": 0,
                 "diagnosis_skipped": "no_tradeable_paper_claim",
-                "diagnosis_skipped_reason": (
-                    "Paper does not report a tradeable monthly long-short return. "
-                    "D2 compares the engine's replication against the paper's headline; "
-                    "without one, gap-closure is mathematically ill-defined."
-                ),
+                "diagnosis_skipped_reason": reason,
             })
 
         try:
