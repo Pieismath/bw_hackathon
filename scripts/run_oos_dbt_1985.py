@@ -17,6 +17,7 @@ once DBT's findings are folded in):
 
 from __future__ import annotations
 
+import argparse
 import json
 from datetime import date
 from pathlib import Path
@@ -68,6 +69,30 @@ def section(title: str) -> None:
 
 def main() -> None:
     SCORECARD_OUT.parent.mkdir(parents=True, exist_ok=True)
+
+    parser = argparse.ArgumentParser(
+        description="Out-of-sample DBT 1985 pipeline. Families filter and "
+                    "D2 budget keep wall time tractable on long-K specs."
+    )
+    parser.add_argument(
+        "--families",
+        default="costs,liquidity,capacity,data_quality",
+        help="Comma-separated battery families to run. Default skips 'lag' "
+             "(monthly-granularity engine makes it uninformative) and "
+             "'subperiod' (11 reruns × 4-min DBT engine = too slow).",
+    )
+    parser.add_argument(
+        "--d2-max-experiments",
+        type=int,
+        default=3,
+        help="Cap on D2 mutation experiments. Default 3 (down from 6) keeps "
+             "OOS wall time bounded on long-K specs.",
+    )
+    args = parser.parse_args()
+    families = tuple(f.strip() for f in args.families.split(",") if f.strip())
+    d2_budget = args.d2_max_experiments
+    print(f"Battery families:     {list(families)}")
+    print(f"D2 max experiments:   {d2_budget}")
 
     section("PARSING DBT 1985")
     pdf = parse_pdf(DBT_PDF)
@@ -178,7 +203,7 @@ def main() -> None:
     diagnosis = diagnose(
         spec=clipped_spec, baseline_result=baseline,
         claim=DBT_HEADLINE_CLAIM, store=store,
-        max_experiments=4, use_cache=True,  # smaller budget for OOS
+        max_experiments=d2_budget, use_cache=True,
     )
     print(f"  primary_cause: {diagnosis.primary_cause}")
     print(f"  primary_cause_kind: {diagnosis.primary_cause_kind}")
@@ -186,9 +211,9 @@ def main() -> None:
     print(f"  experiments_run: {diagnosis.experiments_run}")
     print(f"  confidence: {diagnosis.confidence}")
 
-    section("ROBUSTNESS BATTERY (OOS)")
-    print("Running battery (~10 min on first call)...", flush=True)
-    scorecard = run_battery(clipped_spec, store)
+    section(f"ROBUSTNESS BATTERY (OOS, families={list(families)})")
+    print("Running battery...", flush=True)
+    scorecard = run_battery(clipped_spec, store, families=families)
     print(f"  baseline:           {scorecard.baseline_mean_return*100:+.3f}%/mo  "
           f"t={scorecard.baseline_tstat:.2f}")
     print(f"  n_tests / surviving: {scorecard.n_tests} / {scorecard.n_surviving}")

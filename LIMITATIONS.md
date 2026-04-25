@@ -193,6 +193,74 @@ explicitly notes when a swap couldn't be expressed as a single mutation.
 
 ---
 
+---
+
+## Engine layer (continued)
+
+### Measurement loop is `O(K × N × T)` Python-level
+
+**What:** Per measurement month the engine iterates `K` active tranches
+× `N` weighted positions × pandas single-cell lookups. JT (K=6, N≈400)
+runs in ~30-60s. DBT (K=36, N≈3000) is ~50× heavier — single backtest
+takes ~3-5 min, full battery ~2 hours. This is why the OOS DBT run was
+trimmed to four families (costs, liquidity, capacity, data_quality)
+plus a D2 cap of 3 experiments.
+
+**Surfaced by:** the OOS DBT pipeline's first attempt — engine baseline
+took >10 min, full battery extrapolated to 2+ hours.
+
+**Today:** trimmed-family runs supported via `--families` flag on
+`scripts/run_oos_dbt_1985.py`; default set excludes `lag` (uninformative
+at monthly granularity) and `subperiod` (11 reruns dominate cost).
+
+**Fix path:** vectorize the measurement loop — stack tranche weights into
+a `(K_active × N_symbols)` matrix, multiply by the period's
+`(N_symbols × 1)` returns vector, sum. ~50-100× faster on long-K specs.
+Estimated 1-2 hours of focused engine refactor. Phase 5+ work.
+
+---
+
+## Extraction layer (continued)
+
+### A1 collapses imprecise paper language to binary buckets
+
+**What:** When a paper describes its sorts as "the winner portfolio" and
+"the loser portfolio" without explicitly naming a percentile (decile,
+quintile, top-10, etc.), A1 sometimes collapses the construction to
+`n_buckets=2, long_bucket=1, short_bucket=2`. DBT 1985 is the canonical
+example: A1 extracted binary halves, but the paper actually used the
+top-and-bottom decile of a 35-stock-each portfolio — i.e. `n_buckets=10,
+long_bucket=10, short_bucket=1`.
+
+This isn't a fabrication (A1's `supporting_quote` does say "winner
+portfolio" / "loser portfolio") but it's a coverage gap: the bucket
+size is unspecified in the cited sentence and A1 picked the most
+literal reading instead of pursuing the precise decile boundary
+elsewhere in the paper.
+
+**Surfaced by:** the OOS DBT run on the post-fix engine — A1 emitted
+`PortfolioSpec(construction="custom_sort", n_buckets=2, long_bucket=1,
+short_bucket=2)` despite DBT explicitly using deciles in Table I and
+discussion thereafter.
+
+**Today:** logged. The downstream impact is real — binary buckets put
+half the universe in each leg, which dilutes the signal and inflates
+turnover-related noise. D2's mutation space could in principle propose
+`n_buckets=10`, but the current proposer prompt prioritizes signal /
+direction over construction details.
+
+**Fix paths (ranked):**
+1. Tighten the A1 prompt with an example: "if the paper says 'winner
+   portfolio' and the table elsewhere shows decile sorts, set
+   `n_buckets=10` and cite both the prose and the table caption."
+2. Add a B2-side check: when `portfolio.n_buckets <= 2`, surface a
+   medium-severity ambiguity flag specifically asking whether a finer
+   sort is implied.
+3. Promote `n_buckets` to a D2 mutation candidate when the paper's
+   construction is ambiguous.
+
+---
+
 ## Maintenance
 
 When you find a new failure mode, add an entry here with: what failed,
