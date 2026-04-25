@@ -261,45 +261,6 @@ direction over construction details.
 
 ---
 
-## Engine layer (continued, 2)
-
-### Engine raises `NotImplementedError` on `signal.kind='custom'`
-
-**What:** `src/engine/signals.py::compute_signal()` dispatches on
-`signal.kind` and only implements the `past_return` branch. The
-`fundamental_ratio` and `custom` branches both raise
-`NotImplementedError`. When A1 extracts a paper whose signal is a
-learned model output or any non-momentum/non-ratio formula, the
-pipeline runs successfully through parse → A1 → A2 → A3 → B1/B2, then
-fails ~2 minutes in at the engine stage.
-
-**Surfaced by:** Phase 5 live test on `data/papers/testqt.pdf`
-(*Quantformer: from attention to profit with a quantitative transformer
-trading strategy* — Chinese A-share quintile portfolio formed on a
-transformer's `P(top_quantile)` output). A1 correctly extracted
-`signal.kind='custom'` and `signal.formula="quantformer_model(...)"`,
-but the engine has no path for that. Total wall-clock to failure: 132s
-(parse 2s, A1+A2 ~3s, A3 ~40s, B1/B2 ~81s, engine 6s before raising).
-
-**Today:** the failure surfaces cleanly in the pipeline stepper UI
-(stage `engine`, state `failed`) with the exception message visible in
-`/api/pipeline/status`. No silent corruption — the report.json from a
-prior successful run is left untouched.
-
-**Fix paths (ranked):**
-1. Tighten A1's prompt: when `signal.kind` would be `custom`, A1 must
-   either pick the closest structured kind (e.g. `past_return` for any
-   momentum/reversal-shaped signal) or refuse the paper as
-   out-of-scope with an explicit ambiguity flag. The current prompt
-   accepts `custom` too readily.
-2. Engine: implement a `custom` path that reads a precomputed signal
-   parquet keyed on `(symbol, as_of_date)`. Out of scope for Phase 5
-   (would require a separate signal-build stage).
-3. B2-side check: block at fidelity-verification time when
-   `signal.kind='custom'` and no `signal_source` mapping is present.
-
----
-
 ## Maintenance
 
 When you find a new failure mode, add an entry here with: what failed,
