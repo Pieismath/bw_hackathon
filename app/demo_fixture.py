@@ -679,6 +679,26 @@ def _build_diagnosis() -> dict[str, Any]:
 
 
 def build_demo_bundle() -> dict[str, Any]:
+    """Return the bundle served by /api/demo (the "Load demo" button).
+
+    Prefers a frozen snapshot at outputs/demo_bundle_live.json when it
+    exists — that file is the captured output of a real JT-1993 pipeline
+    run with the current engine, post-fix overrides, and dial defaults.
+    Run `scripts/snapshot_demo_bundle.py` after any change that should
+    surface in the demo. Falls back to the hardcoded fixture below when
+    the snapshot is absent (fresh checkout, CI, etc.).
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    snapshot = _Path("outputs/demo_bundle_live.json")
+    if snapshot.exists():
+        try:
+            return _json.loads(snapshot.read_text())
+        except Exception:
+            # Corrupt snapshot — fall through to the hardcoded fixture
+            # rather than 500 the demo endpoint.
+            pass
+
     spec = _build_spec()
     report = _build_verification_report(spec)
     critique = _build_critique()
