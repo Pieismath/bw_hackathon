@@ -69,6 +69,105 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
+// ---------- terminology map ----------
+//
+// Translate snake_case schema field names into professional finance prose
+// for any user-facing surface. Anything that *displays* a field key should
+// route it through term() so we never leak technical identifiers into the
+// briefing.
+
+const terminologyMap = {
+  // Headline + result metrics
+  monthly_return:           'Monthly Excess Return',
+  mean_return:              'Monthly Excess Return',
+  annualized_return:        'Annualised Return',
+  volatility:               'Annualised Volatility',
+  'volatility (ann)':       'Annualised Volatility',
+  sharpe:                   'Sharpe Ratio',
+  sharpe_ratio:             'Sharpe Ratio',
+  t_stat:                   't-statistic (Newey-West)',
+  tstat:                    't-statistic (Newey-West)',
+  alpha_tstat:              't-statistic (Newey-West)',
+  newey_west_lag:           'Newey-West Lag',
+  max_drawdown:             'Maximum Drawdown',
+  hit_rate:                 'Hit Rate',
+  n_periods:                'Observation Periods',
+  baseline_mean_return:     'Baseline Monthly Excess Return',
+  baseline_tstat:           'Baseline t-statistic',
+  baseline_n_periods:       'Baseline Observation Periods',
+  return_convention:        'Return Convention',
+  spec_hash:                'Specification Hash',
+  turnover:                 'Turnover (one-sided, monthly)',
+  'turnover (one-sided, /mo)': 'Turnover (one-sided, monthly)',
+  transaction_cost_bps:     'Transaction Cost (bps)',
+  // Headline claim block
+  metric:                   'Reported Metric',
+  window_label:             'Sample Window',
+  paper_location:           'Paper Citation',
+  // Header block
+  paper_id:                 'Paper Identifier',
+  paper_title:              'Paper Title',
+  window:                   'Sample Window',
+  base_currency:            'Base Currency',
+  notes:                    'Notes',
+  // Universe
+  region:                   'Region',
+  asset_class:              'Asset Class',
+  min_price:                'Minimum Price Filter',
+  exchanges:                'Exchanges',
+  name:                     'Name',
+  // Signal
+  kind:                     'Signal Type',
+  formula:                  'Signal Formula',
+  lookback_months:          'Lookback Period',
+  skip_months:              'Implementation Lag',
+  direction:                'Signal Direction',
+  frequency:                'Frequency',
+  // Portfolio
+  construction:             'Weighting Methodology',
+  n_buckets:                'Portfolio Quantiles',
+  long_bucket:              'Long Leg',
+  short_bucket:             'Short Leg',
+  weighting:                'Weighting Scheme',
+  long_short:               'Long/Short Construction',
+  gross_exposure:           'Gross Exposure',
+  use_nyse_breakpoints:     'Uses NYSE Breakpoints',
+  // Rebalance
+  execution_lag_days:       'Execution Lag (days)',
+  holding_period_months:    'Holding Period (months)',
+  signal_date_convention:   'Signal Date Convention',
+  execution_date_convention:'Execution Date Convention',
+  // Robustness
+  lag_half_life_days:       'Signal Decay Half-Life (days)',
+  cost_threshold_bps:       'Transaction Cost Tolerance (bps)',
+  capacity_estimate_usd:    'Estimated Capacity (USD)',
+  // Engine flags
+  data_quality_flags:       'Data Integrity Notes',
+  fragility_signals:        'Fragility Signals',
+  // Headline claim object name
+  headline_claim:           'Paper Reported Result',
+  // Window comparison
+  'window (engine)':        'Replication Window',
+  'window (paper)':         'Paper Window',
+};
+
+// Lookup a label for a field key. Falls back to a humanised version of the
+// raw key — split snake_case into Title Case — so unmapped fields still
+// look prose-like rather than code-like.
+function term(key) {
+  if (key == null) return '';
+  const k = String(key);
+  if (Object.prototype.hasOwnProperty.call(terminologyMap, k)) return terminologyMap[k];
+  // Humanise as fallback: replace _ and . with spaces and Title Case.
+  return k
+    .replace(/[._]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((w) => w.length ? w[0].toUpperCase() + w.slice(1) : w)
+    .join(' ');
+}
+
 // ---------- dial form state ----------
 
 // Snapshot the current dial-form values. The result is the source of truth
@@ -385,15 +484,43 @@ function log(tag, msg, klass = 'sys') {
 function showTab(name) {
   state.activeTab = name;
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.dataset.tab !== name));
+  // Keep stale sidenav-links lookup as a no-op fallback (sidebar removed).
   $$('.sidenav-links a').forEach((a) => a.classList.toggle('active', a.dataset.tab === name));
+  // Highlight the stepper step(s) whose stage maps to this tab.
+  $$('.ps-step').forEach((s) => {
+    const stage = s.getAttribute('data-stage');
+    const mapped = STEPPER_STAGE_TO_TAB[stage];
+    s.classList.toggle('ps-current', mapped === name);
+  });
 }
 
-$$('.sidenav-links a').forEach((a) => {
-  a.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    showTab(a.dataset.tab);
-  });
-});
+// Stage → tab mapping. Some stages share a target tab (b → spec because
+// data-mapping output renders in the Methodology tab; d3 → robustness
+// because the CIO verdict is rendered alongside the scorecard). Both
+// stepper boxes still light up and remain clickable.
+const STEPPER_STAGE_TO_TAB = {
+  parse: 'overview',
+  a1: 'spec',
+  a2: 'verification',
+  a3: 'critique',
+  b: 'spec',
+  engine: 'backtest',
+  d2: 'diagnosis',
+  battery: 'robustness',
+  d3: 'robustness',
+};
+
+// Click handler — only fires when the step is in 'done' or 'failed' state
+// (the disabled attribute is removed in setStage when the stage finishes).
+function onStepperClick(ev) {
+  const btn = ev.currentTarget;
+  const state = btn.getAttribute('data-state');
+  if (state !== 'done' && state !== 'failed') return;
+  const stage = btn.getAttribute('data-stage');
+  const tab = STEPPER_STAGE_TO_TAB[stage];
+  if (tab) showTab(tab);
+}
+$$('.ps-step').forEach((s) => s.addEventListener('click', onStepperClick));
 
 // ---------- demo button + status ----------
 
@@ -452,8 +579,21 @@ $('#reset-btn').addEventListener('click', () => {
 
 // ---------- file upload ----------
 
-$('#pick-btn').addEventListener('click', () => $('#file-input').click());
-$('#dropzone').addEventListener('click', () => $('#file-input').click());
+// pick-btn lives INSIDE the dropzone, so a button click bubbles up to the
+// dropzone click handler — both call $('#file-input').click(), opening
+// the file picker twice in rapid succession (browser cancels the first,
+// shows the second; user perceives it as "had to click twice"). Fix:
+// stop propagation on the button, and short-circuit the dropzone handler
+// when the click target is the button (or descendant of it).
+$('#pick-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#file-input').click();
+});
+$('#dropzone').addEventListener('click', (e) => {
+  if (e.target.closest('#pick-btn')) return;     // already handled above
+  if (e.target.closest('#dropzone-confirm')) return; // confirm overlay click
+  $('#file-input').click();
+});
 $('#dropzone').addEventListener('dragover', (e) => { e.preventDefault(); $('#dropzone').classList.add('dragover'); });
 $('#dropzone').addEventListener('dragleave', () => $('#dropzone').classList.remove('dragover'));
 $('#dropzone').addEventListener('drop', (e) => {
@@ -463,7 +603,30 @@ $('#dropzone').addEventListener('drop', (e) => {
 });
 $('#file-input').addEventListener('change', (e) => {
   if (e.target.files.length) uploadPaper(e.target.files[0]);
+  // Reset input value so the SAME filename can be re-uploaded later
+  // (otherwise the change event won't fire because the value didn't change).
+  e.target.value = '';
 });
+
+// Confirmation animation — flashes a green check on the dropzone briefly
+// after a successful upload so the user knows the file went through
+// without having to read the activity log.
+function showUploadConfirmation(filename, sizeKB) {
+  const overlay = $('#dropzone-confirm');
+  const dz = $('#dropzone');
+  if (!overlay || !dz) return;
+  $('#dz-confirm-title').textContent = `Submitted — ${filename}`;
+  $('#dz-confirm-sub').textContent = `${sizeKB.toFixed(1)} KB · pipeline starting…`;
+  overlay.hidden = false;
+  // Re-trigger the CSS animation by toggling a class on the next frame.
+  dz.classList.remove('confirmed');
+  void dz.offsetWidth; // force reflow so the animation restarts
+  dz.classList.add('confirmed');
+  setTimeout(() => {
+    dz.classList.remove('confirmed');
+    overlay.hidden = true;
+  }, 2200);
+}
 
 async function uploadPaper(file) {
   if (!file.name.toLowerCase().endsWith('.pdf')) {
@@ -481,6 +644,7 @@ async function uploadPaper(file) {
     log('A1', `Paper ${paper.paper_id} stored. Kicking off full pipeline…`, 'a1');
     $('#paper-title').textContent = paper.paper_id;
     $('#ingest-chip').innerHTML = '<span class="dot green pulse"></span>Ingested';
+    showUploadConfirmation(file.name, file.size / 1024);
     // Kick off the full pipeline (A1→A2→A3→B1+B2→engine→D2→battery→D3) in
     // the background; show real-time progress via the stepper.
     await runFullPipeline(paper.paper_id);
@@ -1148,7 +1312,7 @@ function renderSpec(verified) {
   // Headline claim — what the paper says about the variant A1 chose. Drives D2.
   if (spec.headline_claim) {
     const hc = spec.headline_claim;
-    root.appendChild(specBlock('Headline claim (paper-reported)', {
+    root.appendChild(specBlock('Paper Reported Result', {
       'metric': [hc.metric, false],
       'monthly_return': [fmtPct(hc.monthly_return, 3), false],
       't_stat': [hc.t_stat == null ? '—' : fmtNum(hc.t_stat, 2), false],
@@ -1157,7 +1321,7 @@ function renderSpec(verified) {
     }, hc.supporting_quote));
   }
 
-  root.appendChild(specBlock('Header', {
+  root.appendChild(specBlock('Paper Header', {
     'paper_id': [spec.paper_id, false],
     'paper_title': [spec.paper_title, false],
     'window': [`${fmtDate(spec.start_date)} → ${fmtDate(spec.end_date)}`, overridePathSet.has('start_date') || overridePathSet.has('end_date')],
@@ -1165,7 +1329,7 @@ function renderSpec(verified) {
     'notes': [spec.notes || '—', false],
   }));
 
-  root.appendChild(specBlock('Universe', {
+  root.appendChild(specBlock('Investable Universe', {
     'name': [spec.universe.name, false],
     'region': [spec.universe.region, false],
     'asset_class': [spec.universe.asset_class, false],
@@ -1173,7 +1337,7 @@ function renderSpec(verified) {
     'exchanges': [(spec.universe.exchanges || []).join(', ') || '—', overridePathSet.has('universe.exchanges')],
   }, quotes.universe));
 
-  root.appendChild(specBlock('Signal', {
+  root.appendChild(specBlock('Signal Construction', {
     'name': [spec.signal.name, false],
     'kind': [spec.signal.kind, false],
     'formula': [spec.signal.formula, false],
@@ -1183,7 +1347,7 @@ function renderSpec(verified) {
     'frequency': [spec.signal.frequency, false],
   }, quotes.signal));
 
-  root.appendChild(specBlock('Portfolio', {
+  root.appendChild(specBlock('Portfolio Construction', {
     'construction': [spec.portfolio.construction, false],
     'n_buckets': [spec.portfolio.n_buckets, overridePathSet.has('portfolio.n_buckets')],
     'long_bucket': [spec.portfolio.long_bucket, overridePathSet.has('portfolio.long_bucket')],
@@ -1194,7 +1358,7 @@ function renderSpec(verified) {
     'use_nyse_breakpoints': [spec.portfolio.use_nyse_breakpoints ? 'yes' : 'no', overridePathSet.has('portfolio.use_nyse_breakpoints')],
   }, quotes.portfolio));
 
-  root.appendChild(specBlock('Rebalance', {
+  root.appendChild(specBlock('Rebalancing Cadence', {
     'frequency': [spec.rebalance.frequency, false],
     'execution_lag_days': [spec.rebalance.execution_lag_days, overridePathSet.has('rebalance.execution_lag_days')],
     'holding_period_months': [spec.rebalance.holding_period_months ?? '—', overridePathSet.has('rebalance.holding_period_months')],
@@ -1249,7 +1413,7 @@ function specBlock(title, fields, supportingQuote) {
   Object.entries(fields).forEach(([k, raw]) => {
     // raw can be either a bare value (legacy) or a [value, isOverridden] tuple.
     const [val, overridden] = Array.isArray(raw) ? raw : [raw, false];
-    dl.appendChild(el('dt', { class: overridden ? 'overridden' : '' }, k));
+    dl.appendChild(el('dt', { class: overridden ? 'overridden' : '' }, term(k)));
     dl.appendChild(el('dd', {}, String(val)));
   });
   section.appendChild(dl);
@@ -1471,7 +1635,7 @@ function renderBacktest(bt, paperClaim) {
   // Data quality flags
   if (bt.data_quality_flags && bt.data_quality_flags.length) {
     const banner = el('div', { class: 'flag-banner' });
-    banner.appendChild(el('div', { class: 'head' }, `Data quality flags (${bt.data_quality_flags.length})`));
+    banner.appendChild(el('div', { class: 'head' }, `Data Integrity Notes (${bt.data_quality_flags.length})`));
     bt.data_quality_flags.forEach((f) => banner.appendChild(el('div', {}, `• ${f}`)));
     root.appendChild(banner);
   }
@@ -1488,33 +1652,33 @@ function renderBacktest(bt, paperClaim) {
   }
   if (claimUsable) {
     const block = el('div', { class: 'spec-section' });
-    block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper claim vs. replication')]));
+    block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper Reported vs. Replication')]));
     const gap = bt.mean_return - paperClaim.monthly_return;
     const gapPct = paperClaim.monthly_return !== 0 ? (bt.mean_return / paperClaim.monthly_return - 1) * 100 : 0;
     const t = el('table', { class: 'data data-paper-vs' });
     t.appendChild(el('thead', {}, [
       el('tr', {}, [
         el('th', {}, 'Metric'),
-        el('th', {}, 'Paper'),
+        el('th', {}, 'Paper Reported'),
         el('th', {}, 'Replication'),
         el('th', {}, 'Delta'),
       ]),
     ]));
     const tb = el('tbody', {}, [
       el('tr', {}, [
-        el('td', {}, 'Monthly long-short'),
+        el('td', {}, 'Monthly Excess Return'),
         el('td', { class: 'num' }, fmtPct(paperClaim.monthly_return, 3)),
         el('td', { class: 'num' }, fmtPct(bt.mean_return, 3)),
         el('td', { class: 'num ' + (gap >= 0 ? 'pos' : 'neg') }, (gap >= 0 ? '+' : '') + fmtPct(gap, 3) + ` (${gapPct.toFixed(0)}%)`),
       ]),
       el('tr', {}, [
-        el('td', {}, 't-stat (Newey-West)'),
+        el('td', {}, 't-statistic (Newey-West)'),
         el('td', { class: 'num' }, fmtNum(paperClaim.tstat, 2)),
         el('td', { class: 'num' }, fmtNum(bt.alpha_tstat, 2)),
         el('td', { class: 'num' }, fmtNum(bt.alpha_tstat - paperClaim.tstat, 2)),
       ]),
       el('tr', {}, [
-        el('td', {}, 'Sample window'),
+        el('td', {}, 'Sample Window'),
         el('td', { class: 'num' }, paperClaim.window),
         el('td', { class: 'num' }, `${fmtDate(bt.start_date)} → ${fmtDate(bt.end_date)}`),
         el('td', {}, '—'),
@@ -1527,7 +1691,7 @@ function renderBacktest(bt, paperClaim) {
 
   // Metrics summary
   const m = el('div', { class: 'spec-section' });
-  m.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Engine metrics')]));
+  m.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Replication Metrics')]));
   const dl = el('dl', { class: 'spec-section-body' });
   [
     ['spec_hash', bt.spec_hash],
@@ -1546,7 +1710,7 @@ function renderBacktest(bt, paperClaim) {
     ['newey_west_lag', bt.newey_west_lag],
     ['return_convention', bt.return_convention],
   ].forEach(([k, v]) => {
-    dl.appendChild(el('dt', {}, k));
+    dl.appendChild(el('dt', {}, term(k)));
     dl.appendChild(el('dd', {}, String(v)));
   });
   m.appendChild(dl);
@@ -1558,8 +1722,8 @@ function renderBacktest(bt, paperClaim) {
   if (bt.decay_by_age && bt.decay_by_age.length) {
     const decay = el('div', { class: 'spec-section' });
     decay.appendChild(el('div', { class: 'spec-section-head' }, [
-      el('h3', {}, 'Signal decay by formation age'),
-      el('span', { class: 'pill info' }, 'per-tranche · gross of cost'),
+      el('h3', {}, 'Signal Decay by Formation Age'),
+      el('span', { class: 'pill info' }, 'Per-tranche · gross of costs'),
     ]));
     decay.appendChild(buildDecayByAgeChart(bt.decay_by_age));
     // Narrative explainer — traders want the takeaway, not just the bars.
@@ -1570,10 +1734,10 @@ function renderBacktest(bt, paperClaim) {
   // Equity curve — interactive (brush-to-zoom + hover tooltip + drawdown panel)
   const chart = el('div', { class: 'spec-section' });
   chart.appendChild(el('div', { class: 'spec-section-head' }, [
-    el('h3', {}, 'Cumulative return (long–short)'),
+    el('h3', {}, 'Cumulative Long–Short Return'),
     el('div', { class: 'chart-toolbar' }, [
-      el('span', { class: 'hint' }, 'drag to zoom · dbl-click to reset'),
-      el('button', { class: 'btn-mini', id: 'eq-reset' }, 'Reset zoom'),
+      el('span', { class: 'hint' }, 'Drag to zoom · double-click to reset'),
+      el('button', { class: 'btn-mini', id: 'eq-reset' }, 'Reset Zoom'),
     ]),
   ]));
   const wrap = el('div', { class: 'chart-wrap chart-wrap-tall' });
@@ -1586,12 +1750,12 @@ function renderBacktest(bt, paperClaim) {
   // Recent returns table (last 24)
   if (bt.returns && bt.returns.length) {
     const tbl = el('div', { class: 'spec-section' });
-    tbl.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, `Return observations · last 24 of ${bt.returns.length}`)]));
+    tbl.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, `Return Observations · last 24 of ${bt.returns.length}`)]));
     const t = el('table', { class: 'data' });
     t.appendChild(el('thead', {}, [
       el('tr', {}, [
-        el('th', {}, 'Period'),
-        el('th', {}, 'Return'),
+        el('th', {}, 'Period End'),
+        el('th', {}, 'Excess Return'),
         el('th', {}, 'Rebalance ID'),
       ]),
     ]));
@@ -1673,7 +1837,7 @@ function buildDecayByAgeChart(points) {
     }));
     const lbl = svgEl('text', {
       x: padL - 6, y: yy + 3,
-      fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
+      fill: '#8b90a0', 'font-family': 'Inter', 'font-size': '10',
       'text-anchor': 'end',
     });
     lbl.textContent = (val * 100).toFixed(2) + '%';
@@ -1687,8 +1851,8 @@ function buildDecayByAgeChart(points) {
     const yVal = yToPx(p.mean_ret);
     const barTop = p.mean_ret >= 0 ? yVal : y0;
     const barHeight = Math.abs(yVal - y0);
-    const color = p.mean_ret >= 0 ? 'rgba(87, 199, 133, 0.7)' : 'rgba(224, 108, 117, 0.7)';
-    const stroke = p.mean_ret >= 0 ? '#57c785' : '#e06c75';
+    const color = p.mean_ret >= 0 ? 'rgba(111, 159, 107, 0.7)' : 'rgba(168, 57, 48, 0.7)';
+    const stroke = p.mean_ret >= 0 ? '#6f9f6b' : '#a83930';
 
     const bar = svgEl('rect', {
       x, y: barTop, width: barW, height: Math.max(barHeight, 1),
@@ -1718,7 +1882,7 @@ function buildDecayByAgeChart(points) {
     if (isEdge || (i % xLabelStride === 0)) {
       const xl = svgEl('text', {
         x: cx, y: h - padB + 14,
-        fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
+        fill: '#8b90a0', 'font-family': 'Inter', 'font-size': '10',
         'text-anchor': 'middle',
       });
       xl.textContent = String(p.age_months);
@@ -1728,7 +1892,7 @@ function buildDecayByAgeChart(points) {
     if (showValueLabels) {
       const vl = svgEl('text', {
         x: cx, y: (p.mean_ret >= 0 ? yVal - 4 : yVal + 12),
-        fill: '#cbd1dc', 'font-family': 'JetBrains Mono', 'font-size': '9.5',
+        fill: '#cbd1dc', 'font-family': 'Inter', 'font-size': '9.5',
         'text-anchor': 'middle',
       });
       vl.textContent = (p.mean_ret * 100).toFixed(2) + '%';
@@ -1739,7 +1903,7 @@ function buildDecayByAgeChart(points) {
   // X-axis caption
   const xcap = svgEl('text', {
     x: padL + innerW / 2, y: h - 4,
-    fill: '#6b7280', 'font-family': 'JetBrains Mono', 'font-size': '10',
+    fill: '#9098a3', 'font-family': 'Inter', 'font-size': '10',
     'text-anchor': 'middle',
   });
   xcap.textContent = 'months since formation';
@@ -1750,11 +1914,11 @@ function buildDecayByAgeChart(points) {
   // per-bar labels are suppressed at high N.
   const vLine = svgEl('line', {
     y1: padT, y2: h - padB,
-    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    stroke: '#9098a3', 'stroke-width': '1', 'stroke-dasharray': '3 3',
     visibility: 'hidden', 'pointer-events': 'none',
   });
   const focus = svgEl('circle', {
-    r: '4', fill: '#fff', stroke: '#5b9dff', 'stroke-width': '1.5',
+    r: '4', fill: '#fff', stroke: '#cba974', 'stroke-width': '1.5',
     visibility: 'hidden', 'pointer-events': 'none',
   });
   s.appendChild(vLine);
@@ -2038,15 +2202,16 @@ class EquityChart {
       s.appendChild(svgEl('rect', {
         x: x0, y: this.padT, width: Math.max(x1 - x0, 1),
         height: this.eqH + this.gap + this.ddH,
-        fill: 'rgba(224, 108, 117, 0.08)',
-        stroke: 'rgba(224, 108, 117, 0.25)',
+        fill: 'rgba(139, 35, 28, 0.05)',
+        stroke: 'rgba(139, 35, 28, 0.18)',
         'stroke-dasharray': '2 3',
       }));
       const lbl = svgEl('text', {
         x: x0 + 4, y: this.padT + 12,
-        fill: 'rgba(224, 108, 117, 0.85)',
-        'font-family': 'JetBrains Mono',
+        fill: 'rgba(184, 151, 98, 0.80)',
+        'font-family': 'Inter',
         'font-size': '9.5',
+        'letter-spacing': '0.08em',
       });
       lbl.textContent = rg.label;
       s.appendChild(lbl);
@@ -2058,11 +2223,11 @@ class EquityChart {
       s.appendChild(svgEl('line', {
         x1: this.padL, x2: this.W - this.padR,
         y1: yp, y2: yp,
-        stroke: '#232a36', 'stroke-width': '1',
+        stroke: '#232830', 'stroke-width': '1',
       }));
       const lbl = svgEl('text', {
         x: this.padL - 6, y: yp + 3,
-        fill: '#6b7280', 'font-family': 'JetBrains Mono',
+        fill: '#9098a3', 'font-family': 'Inter',
         'font-size': '9.5', 'text-anchor': 'end',
       });
       lbl.textContent = `${(t * 100).toFixed(0)}%`;
@@ -2072,36 +2237,36 @@ class EquityChart {
     s.appendChild(svgEl('line', {
       x1: this.padL, x2: this.W - this.padR,
       y1: this.y(0), y2: this.y(0),
-      stroke: '#414755', 'stroke-dasharray': '2 4',
+      stroke: '#3a4250', 'stroke-width': '1', 'stroke-dasharray': '2 4',
     }));
 
     const pts = slice.map((v, k) => `${this.x(lo + k)},${this.y(v)}`).join(' L ');
     s.appendChild(svgEl('path', {
       d: `M ${this.x(lo)},${this.y(0)} L ${pts} L ${this.x(hi)},${this.y(0)} Z`,
-      fill: 'rgba(87, 199, 133, 0.12)',
+      fill: 'rgba(184, 151, 98, 0.06)',
     }));
     s.appendChild(svgEl('path', {
       d: `M ${pts}`,
-      fill: 'none', stroke: '#57c785', 'stroke-width': '1.6',
+      fill: 'none', stroke: '#cba974', 'stroke-width': '1',
     }));
 
     s.appendChild(svgEl('rect', {
       x: this.padL, y: ddTop,
       width: this.W - this.padL - this.padR, height: this.ddH,
-      fill: '#0f1217', stroke: '#232a36',
+      fill: '#0c0e12', stroke: '#232830',
     }));
     const ddPts = ddSlice.map((v, k) => `${this.x(lo + k)},${this.yDD(v)}`).join(' L ');
     s.appendChild(svgEl('path', {
       d: `M ${this.x(lo)},${this.yDD(0)} L ${ddPts} L ${this.x(hi)},${this.yDD(0)} Z`,
-      fill: 'rgba(224, 108, 117, 0.18)',
+      fill: 'rgba(168, 57, 48, 0.12)',
     }));
     s.appendChild(svgEl('path', {
       d: `M ${ddPts}`,
-      fill: 'none', stroke: '#e06c75', 'stroke-width': '1.2',
+      fill: 'none', stroke: '#a83930', 'stroke-width': '0.8',
     }));
-    s.appendChild(this._text(this.padL - 6, ddTop + 9, '0%', { anchor: 'end', color: '#6b7280' }));
-    s.appendChild(this._text(this.padL - 6, ddTop + this.ddH - 2, `${(this.ddMin * 100).toFixed(0)}%`, { anchor: 'end', color: '#6b7280' }));
-    s.appendChild(this._text(this.padL + 4, ddTop + 11, 'Drawdown', { color: '#6b7280' }));
+    s.appendChild(this._text(this.padL - 6, ddTop + 9, '0%', { anchor: 'end', color: '#9098a3' }));
+    s.appendChild(this._text(this.padL - 6, ddTop + this.ddH - 2, `${(this.ddMin * 100).toFixed(0)}%`, { anchor: 'end', color: '#9098a3' }));
+    s.appendChild(this._text(this.padL + 4, ddTop + 11, 'Drawdown', { color: '#9098a3' }));
 
     const nTicks = Math.min(5, Math.max(hi - lo, 1));
     for (let i = 0; i <= nTicks; i++) {
@@ -2110,25 +2275,25 @@ class EquityChart {
       s.appendChild(svgEl('line', {
         x1: xp, x2: xp,
         y1: ddTop + this.ddH, y2: ddTop + this.ddH + 3,
-        stroke: '#414755',
+        stroke: '#3a4250',
       }));
       s.appendChild(this._text(xp, ddTop + this.ddH + 14, this.returns[idx].period_end, {
         anchor: i === 0 ? 'start' : i === nTicks ? 'end' : 'middle',
-        color: '#8b90a0',
+        color: '#9098a3',
       }));
     }
 
     this.cursor = svgEl('line', {
       x1: 0, x2: 0, y1: this.padT, y2: ddTop + this.ddH,
-      stroke: '#5b9dff', 'stroke-width': '1', 'stroke-dasharray': '2 3',
+      stroke: '#cba974', 'stroke-width': '1', 'stroke-dasharray': '2 3',
       class: 'hidden',
     });
     s.appendChild(this.cursor);
-    this.dot = svgEl('circle', { cx: 0, cy: 0, r: 3, fill: '#57c785', stroke: '#0f1217', 'stroke-width': '1.5', class: 'hidden' });
+    this.dot = svgEl('circle', { cx: 0, cy: 0, r: 3, fill: '#6f9f6b', stroke: '#0c0e12', 'stroke-width': '1.5', class: 'hidden' });
     s.appendChild(this.dot);
     this.brushEl = svgEl('rect', {
       x: 0, y: this.padT, width: 0, height: this.eqH,
-      fill: 'rgba(91, 157, 255, 0.18)', stroke: 'rgba(91, 157, 255, 0.6)',
+      fill: 'rgba(184, 151, 98, 0.16)', stroke: 'rgba(184, 151, 98, 0.55)',
       class: 'hidden',
     });
     s.appendChild(this.brushEl);
@@ -2137,7 +2302,7 @@ class EquityChart {
   _text(x, y, str, { anchor = 'start', color = '#8b90a0' } = {}) {
     const t = svgEl('text', {
       x, y, fill: color,
-      'font-family': 'JetBrains Mono', 'font-size': '9.5',
+      'font-family': 'Inter', 'font-size': '9.5',
       'text-anchor': anchor,
     });
     t.textContent = str;
@@ -2200,16 +2365,16 @@ function renderRobustness(robustness) {
         el('span', { class: 'pill info' }, `Gap: ${gapAttributionLabel(judgment.gap_attribution)}`),
       ]),
       el('div', { class: 'verdict-headline' }, [
-        el('span', { class: 'lbl' }, 'Implementable α / mo'),
+        el('span', { class: 'lbl' }, 'Implementable Alpha (per month)'),
         el('span', { class: 'val ' + (judgment.implementable_alpha >= 0 ? 'pos' : 'neg') }, fmtPct(judgment.implementable_alpha, 3)),
       ]),
       el('p', { class: 'verdict-summary' }, judgment.summary),
       el('div', { class: 'quote' }, [
-        el('span', { class: 'meta' }, 'Implementable α basis'),
+        el('span', { class: 'meta' }, 'Implementable Alpha — Basis'),
         document.createTextNode(judgment.implementable_alpha_basis),
       ]),
       el('div', { class: 'quote' }, [
-        el('span', { class: 'meta' }, `Gap attribution · ${gapAttributionLabel(judgment.gap_attribution)}`),
+        el('span', { class: 'meta' }, `Gap Attribution · ${gapAttributionLabel(judgment.gap_attribution)}`),
         document.createTextNode(judgment.gap_attribution_evidence),
       ]),
     ]);
@@ -2218,25 +2383,25 @@ function renderRobustness(robustness) {
 
   // Scorecard KPIs
   const kpiBlock = el('div', { class: 'spec-section' });
-  kpiBlock.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Scorecard summary')]));
+  kpiBlock.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Scorecard Summary')]));
   const kpis = el('div', { class: 'kpi-grid kpi-grid-6' }, [
-    kpi('Baseline mo. return', fmtPct(scorecard.baseline_mean_return, 3), scorecard.baseline_mean_return >= 0 ? 'pos' : 'neg'),
-    kpi('Baseline t-stat', fmtNum(scorecard.baseline_tstat, 2)),
-    kpi('n periods', scorecard.baseline_n_periods),
-    kpi('Tests / surviving', `${scorecard.n_surviving} / ${scorecard.n_tests}`),
-    kpi('Lag half-life (d)', scorecard.lag_half_life_days != null ? fmtNum(scorecard.lag_half_life_days, 1) : '—'),
-    kpi('Cost threshold (bps)', scorecard.cost_threshold_bps != null && Number.isFinite(scorecard.cost_threshold_bps) ? fmtNum(scorecard.cost_threshold_bps, 1) : '—'),
+    kpi('Baseline Monthly Return', fmtPct(scorecard.baseline_mean_return, 3), scorecard.baseline_mean_return >= 0 ? 'pos' : 'neg'),
+    kpi('Baseline t-statistic', fmtNum(scorecard.baseline_tstat, 2)),
+    kpi('Observation Periods', scorecard.baseline_n_periods),
+    kpi('Tests Surviving', `${scorecard.n_surviving} / ${scorecard.n_tests}`),
+    kpi('Signal Decay Half-Life', scorecard.lag_half_life_days != null ? fmtNum(scorecard.lag_half_life_days, 1) + ' d' : '—'),
+    kpi('Transaction Cost Tolerance', scorecard.cost_threshold_bps != null && Number.isFinite(scorecard.cost_threshold_bps) ? fmtNum(scorecard.cost_threshold_bps, 1) + ' bps' : '—'),
   ]);
   kpiBlock.appendChild(kpis);
   if (scorecard.capacity_estimate_usd != null) {
-    kpiBlock.appendChild(el('div', { class: 'kpi-footnote' }, `Capacity @ 50bps impact: ${fmtUSD(scorecard.capacity_estimate_usd)}`));
+    kpiBlock.appendChild(el('div', { class: 'kpi-footnote' }, `Estimated capacity at 50bps impact: ${fmtUSD(scorecard.capacity_estimate_usd)}`));
   }
   root.appendChild(kpiBlock);
 
   // Fragility signals
   if (scorecard.fragility_signals && scorecard.fragility_signals.length) {
     const frag = el('div', { class: 'flag-banner flag-amber' }, [
-      el('div', { class: 'head' }, `Fragility signals (${scorecard.fragility_signals.length})`),
+      el('div', { class: 'head' }, `Fragility Signals (${scorecard.fragility_signals.length})`),
       ...scorecard.fragility_signals.map((s) => el('div', {}, `• ${s}`)),
     ]);
     root.appendChild(frag);
@@ -2245,7 +2410,7 @@ function renderRobustness(robustness) {
   // Primary failure modes from judgment
   if (judgment && judgment.primary_failure_modes && judgment.primary_failure_modes.length) {
     const fm = el('div', { class: 'spec-section' });
-    fm.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Primary failure modes (D3)')]));
+    fm.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Primary Failure Modes')]));
     const list = el('div', { class: 'tag-row' });
     judgment.primary_failure_modes.forEach((m) => list.appendChild(el('span', { class: 'pill warn' }, m.replace(/_/g, ' '))));
     fm.appendChild(list);
@@ -2270,16 +2435,16 @@ function renderRobustness(robustness) {
   if (lagTests.length >= 2 || costTests.length >= 2) {
     const decayBlock = el('div', { class: 'spec-section' });
     decayBlock.appendChild(el('div', { class: 'spec-section-head' }, [
-      el('h3', {}, 'Decay curves'),
-      el('span', { class: 'pill info' }, 'mean monthly return vs swept parameter'),
+      el('h3', {}, 'Sensitivity Curves'),
+      el('span', { class: 'pill info' }, 'Monthly excess return vs perturbed parameter'),
     ]));
     const grid = el('div', { class: 'decay-grid' });
     if (lagTests.length >= 2) {
       grid.appendChild(buildDecayCard({
-        title: 'Execution lag',
-        xLabel: 'signal_lag_days',
+        title: 'Execution Lag',
+        xLabel: 'Signal Lag (days)',
         marker: scorecard.lag_half_life_days,
-        markerLabel: scorecard.lag_half_life_days != null ? `half-life ${fmtNum(scorecard.lag_half_life_days, 1)}d` : null,
+        markerLabel: scorecard.lag_half_life_days != null ? `Half-life ${fmtNum(scorecard.lag_half_life_days, 1)}d` : null,
         points: lagTests.map((t) => ({
           x: t.parameter_swept?.signal_lag_days ?? 0,
           y: t.headline_metric,
@@ -2291,10 +2456,10 @@ function renderRobustness(robustness) {
     }
     if (costTests.length >= 2) {
       grid.appendChild(buildDecayCard({
-        title: 'Transaction costs',
-        xLabel: 'transaction_cost_bps',
+        title: 'Transaction Costs',
+        xLabel: 'Transaction Cost (bps)',
         marker: scorecard.cost_threshold_bps,
-        markerLabel: scorecard.cost_threshold_bps != null && Number.isFinite(scorecard.cost_threshold_bps) ? `α=0 @ ${fmtNum(scorecard.cost_threshold_bps, 1)}bps` : null,
+        markerLabel: scorecard.cost_threshold_bps != null && Number.isFinite(scorecard.cost_threshold_bps) ? `α=0 at ${fmtNum(scorecard.cost_threshold_bps, 1)} bps` : null,
         points: costTests.map((t) => ({
           x: t.parameter_swept?.transaction_cost_bps ?? 0,
           y: t.headline_metric,
@@ -2319,11 +2484,11 @@ function renderRobustness(robustness) {
     const t = el('table', { class: 'data' });
     t.appendChild(el('thead', {}, [
       el('tr', {}, [
-        el('th', {}, 'Test'),
-        el('th', {}, 'Swept'),
-        el('th', {}, 'Mean/AUM'),
-        el('th', {}, 't-stat'),
-        el('th', {}, 'n'),
+        el('th', {}, 'Stress Test'),
+        el('th', {}, 'Parameter Perturbation'),
+        el('th', {}, 'Mean / AUM'),
+        el('th', {}, 't-statistic'),
+        el('th', {}, 'Periods'),
         el('th', {}, 'Status'),
         el('th', {}, 'Notes'),
       ]),
@@ -2341,7 +2506,7 @@ function renderRobustness(robustness) {
         el('td', { class: 'num ' + headlineClass }, headlineCell),
         el('td', { class: 'num' }, r.headline_tstat != null ? fmtNum(r.headline_tstat, 2) : '—'),
         el('td', { class: 'num' }, r.n_periods),
-        el('td', {}, [el('span', { class: 'pill ' + (r.surviving ? 'ok' : 'fail') }, r.surviving ? 'survive' : 'fail')]),
+        el('td', {}, [el('span', { class: 'pill ' + (r.surviving ? 'ok' : 'fail') }, r.surviving ? 'survives' : 'fails')]),
         el('td', { class: 'muted' }, r.notes || '—'),
       ]));
     });
@@ -2445,12 +2610,12 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     const yp = y(t);
     s.appendChild(svgEl('line', {
       x1: padL, x2: W - padR, y1: yp, y2: yp,
-      stroke: t === 0 ? '#414755' : '#232a36',
+      stroke: t === 0 ? '#3a4250' : '#232830',
       'stroke-dasharray': t === 0 ? '2 4' : '',
     }));
     const lbl = svgEl('text', {
       x: padL - 5, y: yp + 3,
-      fill: '#6b7280', 'font-family': 'JetBrains Mono',
+      fill: '#9098a3', 'font-family': 'Inter',
       'font-size': '9', 'text-anchor': 'end',
     });
     lbl.textContent = `${(t * 100).toFixed(2)}%`;
@@ -2462,12 +2627,12 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     const xp = x(marker);
     s.appendChild(svgEl('line', {
       x1: xp, x2: xp, y1: padT, y2: H - padB,
-      stroke: '#e0a458', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+      stroke: '#b89762', 'stroke-width': '1', 'stroke-dasharray': '3 3',
     }));
     if (markerLabel) {
       const lbl = svgEl('text', {
         x: xp + 4, y: padT + 9,
-        fill: '#e0a458', 'font-family': 'JetBrains Mono',
+        fill: '#b89762', 'font-family': 'Inter',
         'font-size': '9.5',
       });
       lbl.textContent = markerLabel;
@@ -2479,15 +2644,15 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
   const sortedPts = points.slice().sort((a, b) => a.x - b.x);
   const lineD = `M ${sortedPts.map((p) => `${x(p.x)},${y(p.y)}`).join(' L ')}`;
   s.appendChild(svgEl('path', {
-    d: lineD, fill: 'none', stroke: '#5b9dff', 'stroke-width': '1.4',
+    d: lineD, fill: 'none', stroke: '#cba974', 'stroke-width': '1.4',
   }));
 
   // Points colored by surviving
   sortedPts.forEach((p) => {
     const c = svgEl('circle', {
       cx: x(p.x), cy: y(p.y), r: 3.5,
-      fill: p.surviving ? '#57c785' : '#e06c75',
-      stroke: '#0f1217', 'stroke-width': '1.2',
+      fill: p.surviving ? '#6f9f6b' : '#a83930',
+      stroke: '#0c0e12', 'stroke-width': '1.2',
     });
     const title = svgEl('title');
     title.textContent = `${p.name}: x=${p.x}, mean=${(p.y * 100).toFixed(2)}%, ${p.surviving ? 'survive' : 'fail'}`;
@@ -2496,8 +2661,8 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     // Value label above point
     const t = svgEl('text', {
       x: x(p.x), y: y(p.y) - 6,
-      fill: p.surviving ? '#57c785' : '#e06c75',
-      'font-family': 'JetBrains Mono', 'font-size': '9',
+      fill: p.surviving ? '#6f9f6b' : '#a83930',
+      'font-family': 'Inter', 'font-size': '9',
       'text-anchor': 'middle',
     });
     t.textContent = `${(p.y * 100).toFixed(2)}%`;
@@ -2509,11 +2674,11 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     const xp = x(p.x);
     s.appendChild(svgEl('line', {
       x1: xp, x2: xp, y1: H - padB, y2: H - padB + 3,
-      stroke: '#414755',
+      stroke: '#3a4250',
     }));
     const t = svgEl('text', {
       x: xp, y: H - padB + 13,
-      fill: '#8b90a0', 'font-family': 'JetBrains Mono',
+      fill: '#8b90a0', 'font-family': 'Inter',
       'font-size': '9', 'text-anchor': 'middle',
     });
     t.textContent = String(p.x);
@@ -2524,16 +2689,16 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
   // nearest data point's x, plus a tooltip pill showing exact x / y / t-stat.
   const vLine = svgEl('line', {
     y1: padT, y2: H - padB,
-    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    stroke: '#9098a3', 'stroke-width': '1', 'stroke-dasharray': '3 3',
     visibility: 'hidden', 'pointer-events': 'none',
   });
   const hLine = svgEl('line', {
     x1: padL, x2: W - padR,
-    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    stroke: '#9098a3', 'stroke-width': '1', 'stroke-dasharray': '3 3',
     visibility: 'hidden', 'pointer-events': 'none',
   });
   const focus = svgEl('circle', {
-    r: '5', fill: '#5b9dff', stroke: '#fff', 'stroke-width': '1.5',
+    r: '5', fill: '#cba974', stroke: '#fff', 'stroke-width': '1.5',
     visibility: 'hidden', 'pointer-events': 'none',
   });
   s.appendChild(vLine); s.appendChild(hLine); s.appendChild(focus);
@@ -2771,18 +2936,18 @@ function buildGapWaterfall(muts, paperClaim) {
   // Top header — axis at gap=0
   s.appendChild(svgEl('line', {
     x1: padL, x2: padL, y1: padT - 4, y2: H - padB + 4,
-    stroke: '#414755', 'stroke-width': '1',
+    stroke: '#3a4250', 'stroke-width': '1',
   }));
   // gridlines at 25/50/75/100% of maxGap
   [0.25, 0.5, 0.75, 1.0].forEach((frac) => {
     const xp = padL + frac * (W - padL - padR);
     s.appendChild(svgEl('line', {
       x1: xp, x2: xp, y1: padT - 4, y2: H - padB + 4,
-      stroke: '#232a36', 'stroke-dasharray': '2 4',
+      stroke: '#232830', 'stroke-dasharray': '2 4',
     }));
     const lbl = svgEl('text', {
       x: xp, y: padT - 6,
-      fill: '#6b7280', 'font-family': 'JetBrains Mono',
+      fill: '#9098a3', 'font-family': 'Inter',
       'font-size': '9.5', 'text-anchor': 'middle',
     });
     lbl.textContent = `${(frac * maxGap * 100).toFixed(2)}%`;
@@ -2790,17 +2955,17 @@ function buildGapWaterfall(muts, paperClaim) {
   });
   s.appendChild(svgEl('text', {
     x: padL, y: padT - 6,
-    fill: '#6b7280', 'font-family': 'JetBrains Mono',
+    fill: '#9098a3', 'font-family': 'Inter',
     'font-size': '9.5', 'text-anchor': 'start',
   })).textContent = '0';
   s.appendChild(svgEl('text', {
     x: 6, y: padT - 6,
-    fill: '#6b7280', 'font-family': 'Inter',
+    fill: '#9098a3', 'font-family': 'Inter',
     'font-size': '10', 'text-anchor': 'start',
   })).textContent = 'Mutation';
   s.appendChild(svgEl('text', {
     x: padL + 6, y: H - 4,
-    fill: '#6b7280', 'font-family': 'Inter',
+    fill: '#9098a3', 'font-family': 'Inter',
     'font-size': '10',
   })).textContent = '|paper − replication| (monthly return)';
 
@@ -2815,14 +2980,14 @@ function buildGapWaterfall(muts, paperClaim) {
     // Label (parameter → to_value)
     const lblP = svgEl('text', {
       x: padL - 10, y: yMid - 2,
-      fill: '#e4e6eb', 'font-family': 'JetBrains Mono',
+      fill: '#e4e6eb', 'font-family': 'Inter',
       'font-size': '11', 'text-anchor': 'end',
     });
     lblP.textContent = m.proposal.parameter;
     s.appendChild(lblP);
     const lblV = svgEl('text', {
       x: padL - 10, y: yMid + 10,
-      fill: '#8b90a0', 'font-family': 'JetBrains Mono',
+      fill: '#8b90a0', 'font-family': 'Inter',
       'font-size': '10', 'text-anchor': 'end',
     });
     lblV.textContent = `${m.from_value_human} → ${m.proposal.to_value}`;
@@ -2831,7 +2996,7 @@ function buildGapWaterfall(muts, paperClaim) {
     // Pre-gap bar (always drawn, full extent, in muted blue)
     s.appendChild(svgEl('rect', {
       x: padL, y: yMid - 7, width: Math.max(xPre - padL, 0), height: 14,
-      fill: 'rgba(91, 157, 255, 0.18)', stroke: 'rgba(91, 157, 255, 0.5)',
+      fill: 'rgba(184, 151, 98, 0.18)', stroke: 'rgba(184, 151, 98, 0.50)',
     }));
 
     if (closed >= 0) {
@@ -2839,39 +3004,39 @@ function buildGapWaterfall(muts, paperClaim) {
       s.appendChild(svgEl('rect', {
         x: xPost, y: yMid - 7,
         width: Math.max(xPre - xPost, 1), height: 14,
-        fill: 'rgba(87, 199, 133, 0.55)', stroke: '#57c785',
+        fill: 'rgba(111, 159, 107, 0.55)', stroke: '#6f9f6b',
       }));
     } else {
       // Gap widened: red segment from xPre → xPost
       s.appendChild(svgEl('rect', {
         x: xPre, y: yMid - 7,
         width: Math.max(xPost - xPre, 1), height: 14,
-        fill: 'rgba(224, 108, 117, 0.55)', stroke: '#e06c75',
+        fill: 'rgba(168, 57, 48, 0.55)', stroke: '#a83930',
       }));
     }
 
     // Markers for pre and post
     s.appendChild(svgEl('line', {
       x1: xPre, x2: xPre, y1: yMid - 9, y2: yMid + 9,
-      stroke: '#5b9dff', 'stroke-width': '1.6',
+      stroke: '#cba974', 'stroke-width': '1.6',
     }));
     s.appendChild(svgEl('line', {
       x1: xPost, x2: xPost, y1: yMid - 9, y2: yMid + 9,
-      stroke: closed >= 0 ? '#57c785' : '#e06c75', 'stroke-width': '1.6',
+      stroke: closed >= 0 ? '#6f9f6b' : '#a83930', 'stroke-width': '1.6',
     }));
 
     // Right-side caption: post_abs_gap and % closed
     const captionX = W - padR + 4;
     const cap1 = svgEl('text', {
       x: captionX, y: yMid - 1,
-      fill: closed >= 0 ? '#57c785' : '#e06c75',
-      'font-family': 'JetBrains Mono', 'font-size': '11',
+      fill: closed >= 0 ? '#6f9f6b' : '#a83930',
+      'font-family': 'Inter', 'font-size': '11',
     });
     cap1.textContent = `${(m.post_abs_gap * 100).toFixed(2)}%`;
     s.appendChild(cap1);
     const cap2 = svgEl('text', {
       x: captionX, y: yMid + 10,
-      fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '9.5',
+      fill: '#8b90a0', 'font-family': 'Inter', 'font-size': '9.5',
     });
     cap2.textContent = `${closedPct >= 0 ? '−' : '+'}${Math.abs(closedPct).toFixed(0)}% gap`;
     s.appendChild(cap2);
@@ -3467,20 +3632,33 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   // Why-popover summary. When proxy / no-target, override D3's narrative
   // with the structural caveat — D3 was writing about a strategy the
   // user didn't ask for.
-  let summary;
+  // Two-track summary: a tight one-liner for the strip (the strip CSS
+  // also -webkit-line-clamps to 2 lines), and the long-form text in the
+  // Rationale popover for the user who wants the full reasoning.
+  let summaryShort, summaryLong;
   if (proxyMode) {
-    summary = 'The engine could not run the paper\'s actual signal (e.g. variance ratio, learned model, fundamental ratio). It substituted a 12-month past-return proxy and ran the full backtest + robustness battery on that proxy. Every number on this dashboard is a verdict on the proxy, not on the paper. To get a real replication, implement the paper\'s signal in src/engine/signals.py and re-run.';
+    summaryShort = 'PROXY ONLY — engine ran a 12-month momentum proxy, not the paper\'s signal.';
+    summaryLong = 'The engine could not run the paper\'s actual signal (variance ratio, learned model, fundamental ratio, etc.) and substituted a 12-month past-return proxy. Every number on this dashboard is a verdict on the proxy, not on the paper. To get a real replication, implement the paper\'s signal in src/engine/signals.py.';
   } else if (noTarget && statOnlyVS) {
-    summary = 'This is a statistical-test paper (variance ratio / autocorrelation against the random-walk null) — Lo-MacKinlay 1988, Poterba-Summers 1988, and similar. The paper does NOT report a tradeable monthly long-short return; it reports VR(k) statistics. The implementable-alpha number is the engine\'s alpha for the IMPLICIT contrarian/momentum strategy implied by signal.direction, measured vs zero (the random-walk null). The "Paper headline" override input does not apply — entering a number would fabricate a claim the paper does not make.';
+    summaryShort = 'Statistical-test paper — no tradeable headline; alpha measured vs zero (random-walk null).';
+    summaryLong = 'Statistical-test paper (variance ratio / autocorrelation against the random-walk null) — Lo-MacKinlay 1988, Poterba-Summers 1988, etc. The paper reports VR(k) statistics, not a tradeable monthly long-short return. The implementable-alpha number is the engine\'s alpha for the implicit contrarian/momentum strategy implied by signal.direction, measured vs zero.';
   } else if (noTarget) {
-    summary = 'The paper\'s headline number was not supplied (A1 could not extract one — common when the paper reports a Sharpe ratio, regression alpha, or non-standard metric). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target.';
+    summaryShort = 'No paper headline extracted — alpha measured vs zero, not vs the paper.';
+    summaryLong = 'A1 could not extract a paper headline number (common for papers reporting Sharpe ratios, regression alphas, or non-standard metrics). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target.';
+  } else if (j) {
+    // D3 narrative goes ONLY in the Rationale popover — keep the strip
+    // clean. The verdict tag + numbers in the columns above already say
+    // enough; the long-form prose was creating top-bar noise.
+    summaryLong = j.summary || j.implementable_alpha_basis || '';
+    summaryShort = '';
   } else {
-    summary = j ? (j.summary || j.implementable_alpha_basis || '') : 'D3 judgment unavailable; showing baseline scorecard numbers.';
+    summaryShort = '';
+    summaryLong = 'D3 judgment unavailable — showing baseline scorecard.';
   }
   const sumEl = $('#vs-summary');
-  if (sumEl) sumEl.textContent = summary;
+  if (sumEl) sumEl.textContent = summaryShort;
   const popover = $('#vs-why-popover');
-  if (popover) popover.textContent = summary;
+  if (popover) popover.textContent = summaryLong;
 
   strip.hidden = false;
 }
@@ -3921,32 +4099,30 @@ const PIPELINE_STAGES = ['parse', 'a1', 'a2', 'a3', 'b', 'engine', 'd2', 'batter
 
 function setStage(stage, state) {
   const el = document.querySelector(`.ps-step[data-stage="${stage}"]`);
-  if (el) el.setAttribute('data-state', state);
+  if (!el) return;
+  el.setAttribute('data-state', state);
+  // Enable the button as soon as the stage finishes (done or failed) so
+  // the user can click it to revisit that stage's report. Pending /
+  // active steps stay disabled.
+  if (state === 'done' || state === 'failed') {
+    el.removeAttribute('disabled');
+  } else {
+    el.setAttribute('disabled', '');
+  }
 }
 
 function resetStepper() {
   const bar = $('#pipeline-stepper');
   if (!bar) return;
-  bar.hidden = false;
   PIPELINE_STAGES.forEach((s) => setStage(s, 'pending'));
-  const collapsed = $('#ps-collapsed');
-  if (collapsed) { collapsed.hidden = true; collapsed.textContent = ''; }
-  // Show the steps again if previously collapsed
-  document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = ''; });
 }
 
-function collapseStepper(elapsedMs) {
-  const collapsed = $('#ps-collapsed');
-  document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = 'none'; });
-  if (collapsed) {
-    const seconds = (elapsedMs / 1000).toFixed(1);
-    collapsed.textContent = `✓ Pipeline complete in ${seconds}s — click to expand`;
-    collapsed.hidden = false;
-    collapsed.onclick = () => {
-      document.querySelectorAll('.ps-step, .ps-arrow').forEach((n) => { n.style.display = ''; });
-      collapsed.hidden = true;
-    };
-  }
+// No-op kept for callsite compatibility — the user wants the stepper to
+// stay fully visible after the pipeline completes so each stage's box
+// remains a clickable shortcut to its report. Previously this collapsed
+// the bar into a single "Pipeline complete" pill.
+function collapseStepper(_elapsedMs) {
+  // intentionally empty
 }
 
 // Demo path: animate through stages with synthetic timing so the user sees

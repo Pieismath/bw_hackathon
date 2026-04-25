@@ -88,19 +88,23 @@ h1, h2, h3, h4, .serif {
 .brand {
   font-family: Georgia, 'Times New Roman', serif;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
-.brand::before {
-  content: '';
-  display: inline-block;
-  width: 3px;
-  height: 14px;
-  background: var(--brick);
-  margin-right: 10px;
-  vertical-align: -2px;
+.brand-logo {
+  display: block;
+  height: 22px;
+  width: auto;
+  padding: 3px 5px;
+  background: #f1f1f2;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  flex-shrink: 0;
 }
 
 .topnav-right {
@@ -154,78 +158,26 @@ h1, h2, h3, h4, .serif {
 }
 
 /* ---------- Shell ---------- */
+/* Sidebar removed — single column. The pipeline-stepper above the shell
+   is the primary navigation. */
 .shell {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
-/* ---------- Sidenav ---------- */
-.sidenav {
-  width: 200px;
-  background: var(--bg-alt);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-.sidenav-head {
-  padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.sidenav-title {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-weight: 600;
-  color: var(--text);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.sidenav-sub {
+/* Floating status pill replaces the sidenav-foot status indicator. */
+.status-pill-floating {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  z-index: 5;
+  pointer-events: none;
   font-size: 10.5px;
-  color: var(--text-subtle);
-  margin-top: 3px;
-  letter-spacing: 0.10em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-.sidenav-links {
-  flex: 1;
-  padding: 4px 0;
-  overflow-y: auto;
-}
-.sidenav-links a {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 16px;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 13px;
-  color: var(--text-muted);
-  text-decoration: none;
-  border-radius: 0;
-  transition: background-color 0.08s, color 0.08s, border-color 0.08s;
-  border-left: 2px solid transparent;
-  letter-spacing: 0.02em;
-}
-.sidenav-links a:hover {
-  background: var(--panel);
-  color: var(--text);
-}
-.sidenav-links a.active {
-  background: var(--panel);
-  color: var(--text);
-  border-left-color: var(--brick);
-}
-.sidenav-links a.active .material-symbols-outlined {
-  color: var(--brick);
-}
-.sidenav-links .material-symbols-outlined {
-  font-size: 16px;
-  color: var(--text-subtle);
-}
-.sidenav-foot {
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
 }
 
 /* ---------- Canvas ---------- */
@@ -383,10 +335,64 @@ h1, h2, h3, h4, .serif {
   justify-content: center;
   cursor: pointer;
   transition: border-color 0.12s, background-color 0.12s;
+  position: relative;
+  overflow: hidden;
 }
 .dropzone:hover, .dropzone.dragover {
   border-color: var(--brick);
   background: rgba(139, 35, 28, 0.04);
+}
+.dropzone.confirmed {
+  border-color: var(--success);
+  background: rgba(87, 199, 133, 0.08);
+  animation: dz-pulse 0.6s ease-out;
+}
+@keyframes dz-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(87, 199, 133, 0.45); }
+  100% { box-shadow: 0 0 0 18px rgba(87, 199, 133, 0); }
+}
+
+/* Confirmation overlay — covers the dropzone-inner content while the
+ * green check + filename is shown, fades out with the parent's
+ * .confirmed class. */
+.dropzone-confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(15, 18, 23, 0.92);
+  z-index: 2;
+  opacity: 0;
+  animation: dz-confirm-in 0.35s ease-out forwards;
+}
+.dropzone-confirm[hidden] { display: none; }
+@keyframes dz-confirm-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.dz-check {
+  font-size: 38px !important;
+  color: var(--success);
+  animation: dz-check-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes dz-check-pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1.0); opacity: 1; }
+}
+.dz-confirm-text { text-align: left; }
+.dz-confirm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.dz-confirm-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 .dropzone-inner {
   text-align: center;
@@ -1593,7 +1599,7 @@ td.muted, .muted {
   border-bottom: 1px solid var(--border);
   border-top: 1px solid var(--border);
   border-left: 3px solid var(--brick);
-  padding: 10px 22px 10px;
+  padding: 6px 18px 7px;
   flex-shrink: 0;
 }
 .verdict-strip[hidden] { display: none !important; }
@@ -1602,13 +1608,13 @@ td.muted, .muted {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 6px;
+  gap: 14px;
+  margin-bottom: 4px;
 }
-.vs-paper { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.vs-paper { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .vs-paper h2 {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text);
@@ -1618,22 +1624,22 @@ td.muted, .muted {
   content: 'CIO Summary';
   display: inline-block;
   font-family: 'Inter', sans-serif;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 700;
   color: var(--brick);
-  letter-spacing: 0.14em;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border: 1px solid rgba(168, 57, 48, 0.45);
   background: rgba(168, 57, 48, 0.06);
-  margin-right: 4px;
+  margin-right: 3px;
 }
 .vs-confidence {
   font-family: 'Inter', sans-serif;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.10em;
+  letter-spacing: 0.09em;
   font-weight: 500;
 }
 .vs-dbt-btn {
@@ -1663,12 +1669,12 @@ td.muted, .muted {
 .vs-columns {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 12px;
+  gap: 10px;
   align-items: stretch;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .vs-col {
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: 0;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -1685,16 +1691,16 @@ td.muted, .muted {
 
 .vs-label {
   font-family: 'Inter', sans-serif;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 700;
   color: var(--text-subtle);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 .vs-value {
   font-family: 'Inter', sans-serif;
-  font-size: 24px;
+  font-size: 19px;
   line-height: 1.05;
   font-weight: 500;
   letter-spacing: -0.015em;
@@ -1712,28 +1718,28 @@ td.muted, .muted {
 .vs-tstat {
   display: inline-block;
   font-family: 'Inter', sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
-  margin-left: 8px;
-  vertical-align: 4px;
+  margin-left: 6px;
+  vertical-align: 3px;
   font-variant-numeric: tabular-nums;
 }
 .vs-loc {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 10.5px;
+  font-size: 9.5px;
   color: var(--text-subtle);
-  margin-top: 2px;
+  margin-top: 1px;
   font-style: italic;
 }
-.vs-tag-row { display: inline-block; margin-left: 10px; vertical-align: 5px; }
+.vs-tag-row { display: inline-block; margin-left: 8px; vertical-align: 4px; }
 .vs-tag {
   display: inline-block;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 0;
   font-family: 'Inter', sans-serif;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   background: transparent;
   color: var(--text-muted);
@@ -1773,35 +1779,41 @@ td.muted, .muted {
 .vs-windows {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-family: 'Inter', sans-serif;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   flex-wrap: wrap;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   font-variant-numeric: tabular-nums;
 }
 .vs-w-label {
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-subtle);
-  margin-right: 4px;
+  margin-right: 3px;
   font-weight: 700;
 }
-.vs-w-sep { width: 1px; height: 10px; background: var(--border); display: inline-block; }
+.vs-w-sep { width: 1px; height: 9px; background: var(--border); display: inline-block; }
 
 .vs-summary {
   display: none;
-  margin-top: 6px;
+  margin-top: 4px;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 12px;
+  font-size: 10.5px;
   color: var(--text);
   font-style: italic;
-  line-height: 1.5;
-  padding: 6px 10px;
+  line-height: 1.4;
+  padding: 4px 9px;
   background: rgba(184, 151, 98, 0.04);
   border-left: 2px solid rgba(184, 151, 98, 0.40);
   border-radius: 0;
+  /* Cap at two lines so the summary stays compact even when D3 returns
+     a long narrative; the full text is still in the Rationale popover. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .vs-summary:empty { display: none; }
 
@@ -2174,90 +2186,153 @@ td.muted, .muted {
 }
 
 /* ============================================================
-   Pipeline stepper bar
+   Pipeline stepper — primary navigation
+   Each step is a button. Pending = grayed/disabled. Active = animating
+   gold. Done = green check + clickable. Failed = red X. The current tab's
+   stage gets a subtle ring. Stays visible after pipeline completes so
+   the user can revisit any stage's report by clicking its box.
    ============================================================ */
 .pipeline-stepper {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 22px;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 18px;
   background: var(--bg-alt);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow-x: auto;
   white-space: nowrap;
-  font-size: 10.5px;
+  /* Sticky-pin to the top of the viewport so the stepper stays visible
+     while the user scrolls inside the canvas. z-index keeps it above
+     verdict-strip/dbt-panel/card chrome. */
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
-.pipeline-stepper[hidden] { display: none !important; }
 .ps-step {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 0;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
+  border-radius: 4px;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-subtle);
   font-family: 'Inter', sans-serif;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  cursor: not-allowed;
+  transition: background 0.18s, color 0.18s, border-color 0.18s, transform 0.12s;
+  position: relative;
+  line-height: 1.1;
+}
+.ps-step .ps-label {
+  white-space: nowrap;
+  font-family: 'Inter', sans-serif;
 }
 .ps-step .ps-icon {
   display: inline-flex;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   align-items: center;
   justify-content: center;
-  border-radius: 0;
+  border-radius: 50%;
   background: var(--border);
   color: var(--text-subtle);
   font-size: 9px;
   font-weight: 700;
+  transition: background 0.18s, color 0.18s, transform 0.18s;
 }
-.ps-step[data-state="pending"] .ps-icon::before { content: "·"; }
+/* Pending */
+.ps-step[data-state="pending"] {
+  opacity: 0.55;
+}
+.ps-step[data-state="pending"] .ps-icon::before { content: ""; }
+
+/* Active (in-flight) */
 .ps-step[data-state="active"] {
   background: rgba(184, 151, 98, 0.10);
   border-color: rgba(184, 151, 98, 0.55);
   color: var(--gold);
+  cursor: progress;
+  opacity: 1;
 }
 .ps-step[data-state="active"] .ps-icon {
-  background: var(--gold);
-  color: var(--bg);
+  background: transparent;
+  border: 2px solid var(--gold);
+  color: var(--gold);
   animation: ps-spin 0.9s linear infinite;
 }
-.ps-step[data-state="active"] .ps-icon::before { content: "⟳"; }
+.ps-step[data-state="active"] .ps-icon::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+/* Done — clickable */
 .ps-step[data-state="done"] {
-  background: transparent;
-  border-color: rgba(111, 159, 107, 0.50);
+  background: rgba(111, 159, 107, 0.06);
+  border-color: rgba(111, 159, 107, 0.55);
   color: var(--success);
+  cursor: pointer;
+  opacity: 1;
+}
+.ps-step[data-state="done"]:hover {
+  background: rgba(111, 159, 107, 0.14);
+  transform: translateY(-1px);
+  border-color: rgba(111, 159, 107, 0.85);
 }
 .ps-step[data-state="done"] .ps-icon {
   background: var(--success);
   color: var(--bg);
+  animation: ps-pop 0.32s ease-out;
 }
 .ps-step[data-state="done"] .ps-icon::before { content: "✓"; }
+
+/* Failed */
 .ps-step[data-state="failed"] {
   background: rgba(168, 57, 48, 0.10);
   border-color: rgba(168, 57, 48, 0.55);
   color: var(--danger);
+  cursor: pointer;
+  opacity: 1;
+}
+.ps-step[data-state="failed"]:hover {
+  background: rgba(168, 57, 48, 0.18);
+}
+.ps-step[data-state="failed"] .ps-icon {
+  background: var(--danger);
+  color: var(--bg);
 }
 .ps-step[data-state="failed"] .ps-icon::before { content: "✗"; }
-.ps-arrow { color: var(--text-subtle); font-size: 10px; }
-@keyframes ps-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
-.ps-collapsed {
-  font-family: 'Inter', sans-serif;
-  font-size: 11px;
-  color: var(--success);
-  cursor: pointer;
-  user-select: none;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-weight: 600;
+/* Currently-viewed stage — subtle ring */
+.ps-step.ps-current {
+  box-shadow: 0 0 0 2px rgba(184, 151, 98, 0.45);
 }
-.ps-collapsed:hover { color: var(--gold); }
+
+/* Reset button styling overrides — these are <button> elements */
+.ps-step:disabled {
+  cursor: not-allowed;
+}
+.ps-step {
+  font-family: 'Inter', sans-serif;
+}
+
+@keyframes ps-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes ps-pop {
+  0%   { transform: scale(0.4); }
+  60%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
 
 /* Topnav button demotion */
 .topnav .btn-primary,

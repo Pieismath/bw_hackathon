@@ -342,6 +342,14 @@
               <p>PDF only. On submission, the pipeline performs methodology extraction, citation verification, and adversarial review. Results are cached locally.</p>
               <button class="btn-primary" id="pick-btn">Select file</button>
             </div>
+            <!-- Confirmation overlay: animates in when upload succeeds. -->
+            <div class="dropzone-confirm" id="dropzone-confirm" hidden>
+              <span class="material-symbols-outlined dz-check">check_circle</span>
+              <div class="dz-confirm-text">
+                <div class="dz-confirm-title" id="dz-confirm-title">Uploaded</div>
+                <div class="dz-confirm-sub" id="dz-confirm-sub">—</div>
+              </div>
+            </div>
           </div>
           <div class="papers-list" id="papers-list"></div>
         </div>
