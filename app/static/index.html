@@ -3,17 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-<title>Paper Replication Machine — MVP</title>
+<title>Bridgewater Replication Terminal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
 <!-- Top nav -->
 <nav class="topnav">
-  <div class="brand">Paper Replication Machine</div>
+  <div class="brand">
+    <img class="brand-logo" src="/static/logo.png" alt="" aria-hidden="true" />
+    <span>MR KRABS</span>
+  </div>
   <div class="topnav-right">
     <span class="verdict" id="verdict-badge" hidden></span>
     <button class="btn-ghost" id="reset-btn" title="Reset">
@@ -22,22 +25,22 @@
     </button>
     <button class="btn-ghost" id="demo-btn">
       <span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span>
-      Load demo
+      Load briefing
     </button>
   </div>
 </nav>
 
 <!-- Phase 5 polish — pipeline progress stepper -->
 <div class="pipeline-stepper" id="pipeline-stepper" hidden>
-  <span class="ps-step" data-stage="parse" data-state="pending"><span class="ps-icon"></span>PDF</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a1" data-state="pending"><span class="ps-icon"></span>A1 Extract</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a2" data-state="pending"><span class="ps-icon"></span>A2 Verify</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="a3" data-state="pending"><span class="ps-icon"></span>A3 Review</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="b" data-state="pending"><span class="ps-icon"></span>B1/B2 Map</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="engine" data-state="pending"><span class="ps-icon"></span>Engine</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="d2" data-state="pending"><span class="ps-icon"></span>D2 Diagnose</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="battery" data-state="pending"><span class="ps-icon"></span>Battery</span><span class="ps-arrow">›</span>
-  <span class="ps-step" data-stage="d3" data-state="pending"><span class="ps-icon"></span>D3 Verdict</span>
+  <span class="ps-step" data-stage="parse" data-state="pending"><span class="ps-icon"></span>Ingest</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a1" data-state="pending"><span class="ps-icon"></span>Methodology</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a2" data-state="pending"><span class="ps-icon"></span>Verify</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="a3" data-state="pending"><span class="ps-icon"></span>Review</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="b" data-state="pending"><span class="ps-icon"></span>Data Map</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="engine" data-state="pending"><span class="ps-icon"></span>Backtest</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="d2" data-state="pending"><span class="ps-icon"></span>Diagnose</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="battery" data-state="pending"><span class="ps-icon"></span>Stress Battery</span><span class="ps-arrow">›</span>
+  <span class="ps-step" data-stage="d3" data-state="pending"><span class="ps-icon"></span>CIO Verdict</span>
   <span class="ps-collapsed" id="ps-collapsed" hidden></span>
 </div>
 
@@ -55,7 +58,7 @@
   </div>
   <div class="vs-columns">
     <div class="vs-col vs-col-claim">
-      <div class="vs-label">PAPER CLAIMED</div>
+      <div class="vs-label">Paper Reported Result</div>
       <div>
         <span class="vs-value" id="vs-claim-value">—</span>
         <span class="vs-tstat" id="vs-claim-tstat">—</span>
@@ -64,21 +67,21 @@
     </div>
     <div class="vs-divider" aria-hidden="true">vs</div>
     <div class="vs-col vs-col-verdict" id="vs-col-verdict">
-      <div class="vs-label">IMPLEMENTABLE ALPHA</div>
+      <div class="vs-label">Implementable Alpha</div>
       <div>
         <span class="vs-value" id="vs-impl-value">—</span>
         <span class="vs-tstat" id="vs-impl-tstat">—</span>
         <span class="vs-tag-row"><span class="vs-tag" id="vs-tag">—</span></span>
-        <span class="vs-why" id="vs-why" tabindex="0" role="button">Why?</span>
+        <span class="vs-why" id="vs-why" tabindex="0" role="button">Rationale</span>
       </div>
     </div>
   </div>
   <div class="vs-windows">
-    <span class="vs-w-item"><span class="vs-w-label">Paper</span><span id="vs-paper-window">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Paper Window</span><span id="vs-paper-window">—</span></span>
     <span class="vs-w-sep"></span>
-    <span class="vs-w-item"><span class="vs-w-label">Engine</span><span id="vs-engine-window">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Replication Window</span><span id="vs-engine-window">—</span></span>
     <span class="vs-w-sep"></span>
-    <span class="vs-w-item"><span class="vs-w-label">Gap</span><span id="vs-gap-attr">—</span></span>
+    <span class="vs-w-item"><span class="vs-w-label">Attribution</span><span id="vs-gap-attr">—</span></span>
   </div>
   <div class="vs-summary" id="vs-summary"></div>
   <div class="vs-why-popover" id="vs-why-popover" hidden></div>
@@ -102,23 +105,23 @@
   <!-- Side nav -->
   <aside class="sidenav">
     <div class="sidenav-head">
-      <div class="sidenav-title">Replication</div>
-      <div class="sidenav-sub">v0.1 MVP</div>
+      <div class="sidenav-title">Briefing</div>
+      <div class="sidenav-sub">Research Terminal · v0.1</div>
     </div>
     <nav class="sidenav-links" id="sidenav-links">
       <a href="#" data-tab="overview" class="active"><span class="material-symbols-outlined">dashboard</span>Overview</a>
-      <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Spec</a>
+      <a href="#" data-tab="spec"><span class="material-symbols-outlined">description</span>Methodology</a>
       <a href="#" data-tab="verification"><span class="material-symbols-outlined">verified_user</span>Verification</a>
       <a href="#" data-tab="critique"><span class="material-symbols-outlined">rate_review</span>Critique</a>
       <a href="#" data-tab="diagnosis"><span class="material-symbols-outlined">science</span>Diagnosis</a>
-      <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Backtest</a>
-      <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Robustness</a>
+      <a href="#" data-tab="backtest"><span class="material-symbols-outlined">trending_up</span>Replication</a>
+      <a href="#" data-tab="robustness"><span class="material-symbols-outlined">shield</span>Stress Tests</a>
       <a href="#" data-tab="provenance"><span class="material-symbols-outlined">account_tree</span>Lineage</a>
     </nav>
     <div class="sidenav-foot">
       <div class="status-pill" id="status-pill">
         <span class="dot gray"></span>
-        <span id="status-text">Idle — no paper loaded</span>
+        <span id="status-text">Idle — awaiting paper</span>
       </div>
     </div>
   </aside>
@@ -129,17 +132,22 @@
     <section class="tab" data-tab="overview">
       <header class="page-head">
         <div>
-          <h1>Overview</h1>
-          <p class="sub">Upload a paper to run the extraction, verification, and backtest pipeline — or load the demo bundle.</p>
+          <h1>Briefing Overview</h1>
+          <p class="sub">Submit a paper to run methodology extraction, citation verification, replication, and the stress-test battery — or load the demonstration briefing.</p>
         </div>
         <div class="head-meta">
-          <span class="meta-pill" id="paper-title">No paper</span>
+          <span class="meta-pill" id="paper-title">No paper loaded</span>
         </div>
       </header>
 
       <div class="grid-12">
-        <!-- Run config (dial panel) -->
-        <div class="card col-12 runconfig-card" id="runconfig-card">
+        <!-- Run config (dial panel) — hidden from the UI; DOM kept so the
+             dial-form readers / seeders / wiring continue to no-op cleanly
+             (applyDials defaults to A1's values, readPaperClaimOverride
+             returns null). The auto-run-on-upload flow is the user-facing
+             entry point; re-runs on previously uploaded papers go through
+             the papers-list "Select" button. -->
+        <div class="card col-12 runconfig-card" id="runconfig-card" style="display:none;">
           <div class="card-head runconfig-head" id="runconfig-head">
             <h3>Run config</h3>
             <div class="runconfig-head-right">
@@ -317,16 +325,16 @@
         <!-- Ingestion -->
         <div class="card col-8">
           <div class="card-head">
-            <h3>Ingest paper</h3>
+            <h3>Ingest Paper</h3>
             <span class="chip" id="ingest-chip"><span class="dot amber"></span>Awaiting upload</span>
           </div>
           <div class="dropzone" id="dropzone">
             <input type="file" id="file-input" accept=".pdf" hidden />
             <div class="dropzone-inner">
               <span class="material-symbols-outlined icon-big">upload_file</span>
-              <h4>Drop a PDF here</h4>
-              <p>PDF only. On upload, the pipeline runs A1 methodology extractor → A2 verifier → optional A3 critique. Results are cached on disk.</p>
-              <button class="btn-primary" id="pick-btn">Browse files</button>
+              <h4>Submit a PDF</h4>
+              <p>PDF only. On submission, the pipeline performs methodology extraction, citation verification, and adversarial review. Results are cached locally.</p>
+              <button class="btn-primary" id="pick-btn">Select file</button>
             </div>
           </div>
           <div class="papers-list" id="papers-list"></div>
@@ -336,22 +344,22 @@
         <div class="col-4 col-stack">
           <div class="card">
             <div class="card-head">
-              <h3>Headline metrics</h3>
+              <h3>Headline Metrics</h3>
               <span class="chip" id="metric-chip"><span class="dot gray"></span>No run</span>
             </div>
             <div class="kpi-grid" id="kpi-grid">
-              <div class="kpi"><label>Monthly return</label><span class="val" id="kpi-monthly">—</span></div>
-              <div class="kpi"><label>t-stat (NW)</label><span class="val" id="kpi-tstat">—</span></div>
-              <div class="kpi"><label>Sharpe (ann.)</label><span class="val" id="kpi-sharpe">—</span></div>
-              <div class="kpi"><label>Max drawdown</label><span class="val" id="kpi-dd">—</span></div>
-              <div class="kpi"><label>Periods</label><span class="val" id="kpi-n">—</span></div>
-              <div class="kpi"><label>Hit rate</label><span class="val" id="kpi-hit">—</span></div>
+              <div class="kpi"><label>Monthly Excess Return</label><span class="val" id="kpi-monthly">—</span></div>
+              <div class="kpi"><label>t-statistic (Newey-West)</label><span class="val" id="kpi-tstat">—</span></div>
+              <div class="kpi"><label>Sharpe Ratio (Ann.)</label><span class="val" id="kpi-sharpe">—</span></div>
+              <div class="kpi"><label>Maximum Drawdown</label><span class="val" id="kpi-dd">—</span></div>
+              <div class="kpi"><label>Observation Periods</label><span class="val" id="kpi-n">—</span></div>
+              <div class="kpi"><label>Hit Rate</label><span class="val" id="kpi-hit">—</span></div>
             </div>
           </div>
 
           <div class="card">
             <div class="card-head">
-              <h3>Activity log</h3>
+              <h3>Activity Tape</h3>
               <span class="chip"><span class="dot green pulse"></span>Live</span>
             </div>
             <div class="log" id="log"></div>
@@ -364,11 +372,11 @@
     <section class="tab hidden" data-tab="spec">
       <header class="page-head">
         <div>
-          <h1>Replication spec</h1>
-          <p class="sub">Structured Pydantic contract produced by A1 (methodology extractor) and audited by A2. Every non-default is tied to a verbatim quote.</p>
+          <h1>Methodology Specification</h1>
+          <p class="sub">Structured replication contract distilled from the source paper and audited for citation support. Each non-default parameter is tied to a verbatim passage from the manuscript.</p>
         </div>
         <div class="head-meta">
-          <span class="meta-pill hidden" id="override-chip" title="Click to see overridden fields">Dial overrides active: 0 fields</span>
+          <span class="meta-pill hidden" id="override-chip" title="Click to see overridden fields">Manual overrides active: 0 fields</span>
         </div>
       </header>
       <div id="spec-body"></div>
@@ -378,8 +386,8 @@
     <section class="tab hidden" data-tab="verification">
       <header class="page-head">
         <div>
-          <h1>Quote verification</h1>
-          <p class="sub">A2 walks every supporting quote: deterministic fuzzy-match against the PDF, then Haiku judgment on whether the quote actually supports the field's claim.</p>
+          <h1>Citation Verification</h1>
+          <p class="sub">Every supporting passage is checked against the source PDF using deterministic fuzzy matching, then independently judged for whether the citation actually supports the claim.</p>
         </div>
       </header>
       <div id="verification-body"></div>
@@ -389,8 +397,8 @@
     <section class="tab hidden" data-tab="critique">
       <header class="page-head">
         <div>
-          <h1>Adversarial critique (A3)</h1>
-          <p class="sub">Opus reads the paper, A1 spec, and A2 report, then emits three criticisms: missed, oversimplified, alternative interpretation.</p>
+          <h1>Adversarial Critique</h1>
+          <p class="sub">A senior reviewer reads the paper, the extracted methodology, and the verification report, then issues three criticisms: missed, oversimplified, and alternative interpretation.</p>
         </div>
       </header>
       <div id="critique-body"></div>
@@ -400,8 +408,8 @@
     <section class="tab hidden" data-tab="backtest">
       <header class="page-head">
         <div>
-          <h1>Backtest result</h1>
-          <p class="sub">Engine output: Newey-West adjusted returns, overlapping tranches, survivorship-flagged provenance.</p>
+          <h1>Replication Result</h1>
+          <p class="sub">Replication engine output: Newey-West-adjusted returns, overlapping tranche construction, with survivorship and data-integrity disclosures.</p>
         </div>
       </header>
       <div id="backtest-body"></div>
@@ -411,8 +419,8 @@
     <section class="tab hidden" data-tab="robustness">
       <header class="page-head">
         <div>
-          <h1>Robustness battery (Phase 4)</h1>
-          <p class="sub">Six families of stress tests mutate the spec and rerun the canonical engine; D3 (Sonnet) interprets the scorecard into an implementability verdict.</p>
+          <h1>Stress-Test Battery</h1>
+          <p class="sub">Six families of perturbations rerun the canonical engine under altered conditions; the senior reviewer interprets the scorecard into a single implementability verdict.</p>
         </div>
       </header>
       <div id="robustness-body"></div>
@@ -422,8 +430,8 @@
     <section class="tab hidden" data-tab="diagnosis">
       <header class="page-head">
         <div>
-          <h1>Divergence diagnosis (D2)</h1>
-          <p class="sub">When the engine disagrees with the paper, D2 proposes one-field mutations, reruns the engine, and attributes the residual gap to a concrete cause.</p>
+          <h1>Divergence Diagnosis</h1>
+          <p class="sub">When replication disagrees with the paper's reported result, the diagnostician proposes single-parameter mutations, reruns the engine, and attributes the residual gap to a concrete cause.</p>
         </div>
       </header>
       <div id="diagnosis-body"></div>
@@ -433,8 +441,8 @@
     <section class="tab hidden" data-tab="provenance">
       <header class="page-head">
         <div>
-          <h1>Lineage</h1>
-          <p class="sub">Drill into every number, quote, and decision in the pipeline. Search any supporting quote, follow each agent's output, and trace results back to the source PDF or data record.</p>
+          <h1>Lineage &amp; Provenance</h1>
+          <p class="sub">Drill into every number, citation, and decision in the briefing. Search any supporting passage, follow each pipeline stage, and trace results back to the source manuscript or data record.</p>
         </div>
       </header>
       <div id="provenance-body"></div>
