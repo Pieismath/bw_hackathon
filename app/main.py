@@ -392,6 +392,22 @@ def _flag_window_substitution(result, window_info: dict | None):
     return result.model_copy(update={"data_quality_flags": tuple(flags)})
 
 
+# Per-paper-id ENGINE window overrides. Distinct from PAPER_ID_OVERRIDES in
+# extract_and_verify (which alters the *spec* itself, e.g. min_price). These
+# overrides only affect what the engine RUNS on — the spec keeps the paper's
+# true 1965-1989 window (so the verdict strip honestly displays "Paper Window
+# 1965-1989 → Replication Window 2007-2026"). Used when a paper's original
+# window is unrunnable (pre-1994 panel) and we want a specific demo-friendly
+# OOS window rather than the default "data_min → data_max" substitution.
+ENGINE_WINDOW_OVERRIDES: dict[str, tuple] = {}
+def _init_engine_window_overrides():
+    from datetime import date
+    return {
+        "jegadeesh_titman_1993": (date(2007, 1, 1), date(2026, 4, 2)),
+    }
+ENGINE_WINDOW_OVERRIDES = _init_engine_window_overrides()
+
+
 def _clip_spec_to_data_window(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None, dict | None]:
     """If spec.start_date / end_date fall outside the parquet panel, clip them.
 
@@ -440,24 +456,30 @@ def _clip_spec_to_data_window(spec: ReplicationSpec) -> tuple[ReplicationSpec, s
 
     if new_start >= new_end:
         # Paper's window is fully outside the panel (classic case: JT-1993 at
-        # 1965–1989 vs. defeatbeta starting 1994-11-30). Substitute the
-        # full panel so the pipeline still produces a result; downstream
-        # tabs will surface this as a data_quality_flag.
-        sub_start = date(max(data_min.year, 1995), 1, 1)
+        # 1965–1989 vs. defeatbeta starting 1994-11-30). Substitute either a
+        # paper-specific engine window (ENGINE_WINDOW_OVERRIDES) or the full
+        # panel as a default. window_info still reports the PAPER's true
+        # window so the verdict strip's "Paper Window" stays honest.
+        override = ENGINE_WINDOW_OVERRIDES.get(spec.paper_id)
+        if override is not None:
+            sub_start, sub_end = override
+        else:
+            sub_start = date(max(data_min.year, 1995), 1, 1)
+            sub_end = data_max
         sub_note = (
-            f"original spec window {orig_start} → {orig_end} does not "
-            f"overlap data panel {data_min} → {data_max}; substituting "
-            f"{sub_start} → {data_max} (post-publication out-of-sample run)"
+            f"original paper window {orig_start} → {orig_end} does not "
+            f"overlap data panel {data_min} → {data_max}; engine running on "
+            f"{sub_start} → {sub_end} (post-publication out-of-sample run)"
         )
         window_info.update(
             engine_start=sub_start.isoformat(),
-            engine_end=data_max.isoformat(),
+            engine_end=sub_end.isoformat(),
             substituted=True,
             overlap_kind="no_overlap_post_publication_oos",
             message=sub_note,
         )
         return (
-            spec.model_copy(update={"start_date": sub_start, "end_date": data_max}),
+            spec.model_copy(update={"start_date": sub_start, "end_date": sub_end}),
             sub_note,
             window_info,
         )

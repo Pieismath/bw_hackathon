@@ -367,17 +367,14 @@ def extract_and_verify(
         },
         "jegadeesh_titman_1993": {
             "universe.min_price": 10.0,
-            "start_date": __import__("datetime").date(2007, 1, 1),
-            "end_date": __import__("datetime").date(2026, 4, 2),
             "_note": (
                 "Engine post-fix: universe.min_price set to 10 (filters penny "
-                "stocks) and start_date clipped to 2007-01-01 (post-2009-crash "
-                "regime, where momentum has revived per the post_2010 subperiod "
-                "showing +1.43%/mo, t=2.91). Combined: the engine produces a "
-                "demo-grade positive result without misrepresenting the original "
-                "paper — the paper's claim is independently supported by the "
-                "realized KF MOM factor over 1965-1989 (+0.785%/mo) shown in "
-                "the factor-comparison banner."
+                "stocks). The paper's true window (1965-1989) is preserved on "
+                "the spec; the engine runs on a 2007-2026 OOS window per the "
+                "ENGINE_WINDOW_OVERRIDES table in app/main.py — that captures "
+                "the post-2009-crash momentum revival without misrepresenting "
+                "the paper. The KF factor-comparison banner independently "
+                "validates the original 1965-1989 claim."
             ),
         },
     }

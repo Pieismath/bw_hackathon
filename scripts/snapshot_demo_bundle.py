@@ -36,14 +36,22 @@ from src.robustness import run_battery
 from src.specs import PaperClaim, SupportingQuote
 
 
-JT_PDF = Path("data/papers/*PAST RETURN* jegadeesh-titman-1993.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 OUT = Path("outputs/demo_bundle_live.json")
 CACHE_ROOT = Path("data/cache/hf_datasets")
 
 
 def _clip_window(spec):
-    """Same logic as app.main._clip_spec_to_data_window — substitute pre-1994
-    paper window with the available panel range."""
+    """Delegate to the canonical helper in app.main so the snapshot uses the
+    same engine-window override logic as the live API (e.g. JT-1993 routing
+    to 2007-2026 instead of the default 1995-onwards substitution)."""
+    from app.main import _clip_spec_to_data_window
+    return _clip_spec_to_data_window(spec)
+
+
+def _clip_window_legacy(spec):
+    """Legacy local copy — superseded by the import above. Kept for diff
+    history; not called."""
     import duckdb
     snap = next(
         (CACHE_ROOT / "defeatbeta" / "datasets--defeatbeta--yahoo-finance-data" / "snapshots").iterdir()
