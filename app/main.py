@@ -221,6 +221,27 @@ def critique(body: PaperIdBody):
 # Phase 1 — backtest engine
 # ---------------------------------------------------------------------------
 
+def _engine_weighting_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None]:
+    """Substitute portfolio.weighting when the engine doesn't implement it.
+
+    Today src/engine/portfolio.py supports `equal` and `value`. Papers that
+    A1 extracts as `signal_weighted` (proportional-to-prediction-strength)
+    raise NotImplementedError at the engine. Substitute `equal` so the
+    pipeline completes; flag the swap so the verdict strip discloses it.
+    """
+    w = spec.portfolio.weighting
+    if w in ("equal", "value"):
+        return spec, None
+    flag = (
+        f"engine fallback: portfolio.weighting='{w}' is not yet implemented "
+        f"in the canonical engine; substituting 'equal' as a structured proxy. "
+        f"The replicated weights are NOT proportional to the paper's signal — "
+        f"treat the headline number accordingly."
+    )
+    new_pf = spec.portfolio.model_copy(update={"weighting": "equal"})
+    return spec.model_copy(update={"portfolio": new_pf}), flag
+
+
 def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None]:
     """If `signal.kind` is one the engine can't run today, substitute the
     closest structured kind that lets the pipeline complete.
@@ -755,7 +776,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
     PIPELINE_JOBS[job_id]['result'] as a bundle the SPA can render directly
     via applyBundle() — bypassing the static outputs/jt_*.json report aggregator.
     """
-    bundle: dict = {"paper_id": paper_id}
+    bundle: dict = {"paper_id": paper_id, "paper_claim": None}
     try:
         from src.agents.extraction import (
             extract_and_verify, fold_high_severity_into_spec, review,
@@ -766,6 +787,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         from src.data import DefeatBetaYahooSource, PointInTimeDataStore
         from src.robustness import run_battery
         from src.specs import PaperClaim, SupportingQuote
+        from app.demo_fixture import _bundle_paper_claim
 
         _set_stage(job_id, "parse", "active")
         pdf = _load_pdf(paper_id)
@@ -776,6 +798,11 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         spec = verified.spec
         bundle["paper_title"] = spec.paper_title
         bundle["verified_spec"] = verified.model_dump(mode="json")
+        # If A1 extracted a headline claim, surface it on the bundle so the
+        # verdict strip's left column ("PAPER CLAIMED +x%/mo") populates on the
+        # first run, not just after the user clicks "Load demo" and the static
+        # JT report's claim repopulates by side-effect.
+        bundle["paper_claim"] = _bundle_paper_claim(spec.headline_claim)
         _set_stage(job_id, "a1", "done")
         _set_partial(job_id, bundle)
 
@@ -802,10 +829,12 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         # …) gets a runnable engine window with a data_quality_flag.
         clipped, _clip_note, window_info = _clip_spec_to_data_window(spec_with_critique)
         bundle["window_info"] = window_info
-        # Substitute signal.kind if the engine can't run it (e.g. 'custom') so
-        # the rest of the pipeline (battery, D2, D3) still produces output the
-        # SPA can render. The structured-proxy substitution is flagged below.
+        # Substitute signal.kind / portfolio.weighting if the engine can't run
+        # them (e.g. 'custom' / 'signal_weighted') so the rest of the pipeline
+        # (battery, D2, D3) still produces output the SPA can render. The
+        # structured-proxy substitution(s) are flagged below.
         clipped, kind_fallback_msg = _engine_kind_fallback(clipped)
+        clipped, weighting_fallback_msg = _engine_weighting_fallback(clipped)
         src = DefeatBetaYahooSource(cache_root=Path("data/cache/hf_datasets"))
         store = PointInTimeDataStore(
             sources={"defeatbeta_yahoo": src},
@@ -815,8 +844,9 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "engine", "active")
             baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
             baseline = _flag_window_substitution(baseline, window_info)
-            if kind_fallback_msg:
-                flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+            extra_flags = [m for m in (kind_fallback_msg, weighting_fallback_msg) if m]
+            if extra_flags:
+                flags = list(baseline.data_quality_flags) + extra_flags
                 baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
             bundle["backtest"] = baseline.model_dump(mode="json")
             _set_stage(job_id, "engine", "done")
