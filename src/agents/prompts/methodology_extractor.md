@@ -88,6 +88,12 @@ When the paper reports multiple variants (e.g. JT's grid J ∈ {3,6,9,12} × K �
 
 Never emit multiple `ReplicationSpec` objects or enumerate variants in fields. Variant sweeping is downstream work for the robustness battery (D3) and divergence diagnostician (D2) — not A1's.
 
+### 8. Headline claim — extract the paper's reported number for the variant you chose
+
+When the paper reports a primary numeric result for the variant you selected in rule 7, populate `headline_claim` with that number, its t-statistic if available, the sample window, the paper location, and a verbatim supporting quote that contains the number itself. This is what D2 (downstream) compares the engine's replication against — without it, D2 has nothing to attribute the gap to.
+
+If the paper is purely theoretical, or if no single number is designated as the headline result for any variant, set `headline_claim` to `null`. **Do not fabricate.** A null headline is strictly better than a hallucinated one.
+
 ---
 
 ## Suggested extraction order
@@ -275,6 +281,21 @@ The paper's explicit sample period.
 ### `ambiguities` (tuple of `AmbiguityFlag`)
 See the mandatory list and severity defaults below.
 
+### `headline_claim` (`HeadlineClaim` | `null`)
+
+The paper's own reported headline number for the variant you selected. Used downstream by D2 to attribute the gap between the paper's claim and the engine's replication.
+
+- `metric` — `"monthly_long_short_return"` (the only metric supported today)
+- `monthly_return` — decimal, e.g. `0.0095` for 0.95% per month. Convert percentages reported in the paper accordingly (`0.95%` → `0.0095`)
+- `t_stat` — the Newey-West t-statistic for the headline number if the paper reports one, else `null`
+- `window_label` — the literal sample window the paper used for that number, e.g. `"Jan 1965 – Dec 1989"`
+- `paper_location` — where the number appears, e.g. `"Table I Panel A, J=6/K=6 'Buy-sell' row"`
+- `supporting_quote` — a verbatim span (rule 6: table cells are citable) that contains the number itself, e.g. `{"text": "Buy-sell 0.0095", "page": 7}`
+
+The supporting quote should literally contain the number so a human reviewer can confirm the linkage at a glance. If the paper reports the value only as a percentage (`0.95%`) and not as the decimal, cite the percentage form verbatim — the value field still uses decimal.
+
+Set `headline_claim = null` if and only if: the paper is theoretical with no empirical result, OR the paper reports no single number designated as the headline for any variant. Do not fabricate. A null claim is strictly better than a hallucinated one.
+
 ### `notes` (string)
 Anything a human reviewer should know that doesn't fit elsewhere. Keep under 500 characters.
 
@@ -332,6 +353,7 @@ Also raise flags for any other choice you made without a verbatim quote backing 
 - [ ] Every unstated choice has an `AmbiguityFlag` at its locked default severity (upgraded only with stated reason).
 - [ ] **For each `supporting_quote`, verify:** does this exact sentence say what this field says? If the quote is "close but about a different thing" (e.g. the quote defines the signal but the field is about execution timing), remove the quote and raise an `AmbiguityFlag` instead.
 - [ ] Each flag whose `default_chosen` was inferred rather than extracted explicitly says so in `reason`.
+- [ ] If a paper-reported headline number exists for the variant chosen in rule 7, `headline_claim` is populated with that number, a `window_label`, a `paper_location`, and a `supporting_quote` that literally contains the value. Otherwise `headline_claim` is `null`.
 - [ ] The JSON validates against the tool's input schema.
 
 A replication that honestly says "the paper is silent on X so we chose Y" is strictly better than one that confidently asserts "the paper says X" with a misaligned quote. The ambiguities list is a feature, not a limitation.

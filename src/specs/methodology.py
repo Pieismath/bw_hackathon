@@ -18,6 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.specs.claims import SupportingQuote
+from src.specs.paper_metrics import HeadlineClaim
 
 SensitivityPriority = Literal["high", "medium", "low"]
 
@@ -182,6 +183,10 @@ class ReplicationSpec(BaseModel):
     base_currency: str = "USD"
     ambiguities: tuple[AmbiguityFlag, ...] = ()
     notes: str = ""
+    # Optional paper-reported headline number for the variant A1 chose as primary.
+    # When present, D2 compares the engine's replication against this claim;
+    # when None (purely theoretical paper, no designated headline), D2 is skipped.
+    headline_claim: HeadlineClaim | None = None
 
     @model_validator(mode="after")
     def _check_dates(self) -> "ReplicationSpec":

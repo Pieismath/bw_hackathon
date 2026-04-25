@@ -18,6 +18,7 @@ from src.specs import (
     BacktestResult,
     Criticism,
     DivergenceDiagnosis,
+    HeadlineClaim,
     MutationProposal,
     MutationResult,
     PortfolioSpec,
@@ -121,6 +122,19 @@ def _build_spec() -> ReplicationSpec:
             ),
         ),
         notes="Clipped to 1995–2020 because defeatbeta price panel begins 1994-11-30.",
+        headline_claim=HeadlineClaim(
+            metric="monthly_long_short_return",
+            monthly_return=0.0095,
+            t_stat=3.07,
+            window_label="Jan 1965 – Dec 1989 (300 months)",
+            paper_location="Table I Panel A, J=6/K=6 'Buy-sell' row",
+            supporting_quote=SupportingQuote(
+                text="Buy-sell 0.0095",
+                page=7,
+                verified=True,
+                match_confidence=1.0,
+            ),
+        ),
     )
 
 
@@ -664,13 +678,23 @@ def build_demo_bundle() -> dict[str, Any]:
         "verified_spec": verified.model_dump(mode="json"),
         "critique": critique.model_dump(mode="json"),
         "backtest": result.model_dump(mode="json"),
-        "paper_claim": {
-            "monthly_return": 0.0095,
-            "tstat": 3.07,
-            "window": "Jan 1965 – Dec 1989 (300 months)",
-        },
+        # Bundle-root paper_claim is the legacy flat shape consumed by the
+        # frontend's runDiagnosis. Derive from spec.headline_claim so the
+        # source of truth stays on the spec.
+        "paper_claim": _bundle_paper_claim(spec.headline_claim),
         "robustness": _build_robustness(),
         "diagnosis": _build_diagnosis(),
+    }
+
+
+def _bundle_paper_claim(hc: HeadlineClaim | None) -> dict[str, Any] | None:
+    """Project a HeadlineClaim onto the legacy flat bundle shape D2 frontend reads."""
+    if hc is None:
+        return None
+    return {
+        "monthly_return": hc.monthly_return,
+        "tstat": hc.t_stat,
+        "window": hc.window_label,
     }
 
 

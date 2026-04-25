@@ -15,7 +15,7 @@ Agent instructions for Claude Code working on the Paper Replication Machine.
 
 ```
 src/specs/          Pydantic contracts (ReplicationSpec, BacktestResult, VerifiedReplicationSpec,
-                    DivergenceDiagnosis, RobustnessScorecard, RobustnessJudgment, …)
+                    DivergenceDiagnosis, RobustnessScorecard, RobustnessJudgment, HeadlineClaim, …)
 src/data/           PointInTimeDataStore + DefeatBetaYahooSource — every call needs as_of_date
 src/engine/         Canonical backtest — one tested implementation
 src/pdf/            pdfplumber parser + deterministic fuzzy quote verifier
@@ -106,7 +106,7 @@ All endpoints return JSON. Handlers catch `BaseException`, log the traceback, an
 | `/api/demo` | GET | Full schema-valid JT-1993 bundle (no external deps) |
 | `/api/papers` | GET | List uploaded PDFs in `data/papers/` |
 | `/api/papers` | POST | Multipart PDF upload (paper_id = filename stem) |
-| `/api/extract` | POST | Run A1 + A2 via `extract_and_verify` |
+| `/api/extract` | POST | Run A1 + A2 via `extract_and_verify`. Response includes a `paper_claim` projection (`{monthly_return, tstat, window}`) of `verified.spec.headline_claim` when A1 extracted one — frontend uses it to auto-fire D2. |
 | `/api/critique` | POST | Run A3 via `adversarial_reviewer.review` |
 | `/api/backtest` | POST | Run `run_backtest` — 503 if parquet cache missing |
 | `/api/robustness` | POST | Run `src.robustness.run_battery` + D3 `judge` on a spec — 503 if parquet cache missing, same pattern as `/api/backtest` |
@@ -115,7 +115,7 @@ All endpoints return JSON. Handlers catch `BaseException`, log the traceback, an
 ## MVP frontend (`app/static/`)
 
 - Single-page SPA, no build step, no Tailwind CDN — hand-rolled CSS matching the "Dark Mode Research Lab" tokens.
-- Eight tabs: Overview, Spec, Verification, Critique, Backtest, Robustness, Diagnosis, Provenance. (Eight stays eight — the Run config dial panel is a card on the Overview tab, not a new tab.)
+- Eight tabs: Overview, Spec, Verification, Critique, Backtest, Robustness, Diagnosis, Lineage. (Eight stays eight — the Run config dial panel is a card on the Overview tab, not a new tab.) The Lineage tab (DOM id `provenance-body`, `data-tab="provenance"` for back-compat) renders an interactive drill-down: pipeline stages with click-to-jump, sources + data-quality flags, a searchable index of every `SupportingQuote` across the bundle, and the D2 mutation chain when present. `renderLineage(bundle)` runs from `applyBundle` AND after every pipeline stage completes (`runBacktest`, `runRobustness`, `runDiagnosis`) so the tab stays fresh; if you add a new stage that produces quotes or provenance, extend `collectAllQuotes` and `buildLineagePipelineSection` in `app.js`.
 - `safeJson()` in `app.js` reads responses as text first so non-JSON bodies surface legibly instead of `Unexpected token ...`.
 - The Run config panel on the Overview tab exposes 13 dials that override `ReplicationSpec` fields (plus `transaction_cost_bps` as a request-level kwarg) before each pipeline call. `applyDials(spec)` in `app.js` is the single contract between dial-form state and the outgoing `spec` dict — it deep-clones the original A1 spec and merges the form values without touching `supporting_quote`s. Any new dial must extend `applyDials` (and its inverse `seedDialFormFromSpec`); don't smuggle form state into individual `fetch` call sites.
 - Charts are hand-built SVG (no chart lib): `EquityChart` (Backtest tab) supports drag-to-zoom + dbl-click reset + hover tooltip + drawdown subpanel + `REGIMES` shading; `buildDecayCard` (Robustness tab) renders a small lag/cost decay curve with a marker for `lag_half_life_days` / `cost_threshold_bps`; `buildGapWaterfall` (Diagnosis tab) renders one bar per `MutationResult` from `pre_abs_gap` to `post_abs_gap`, green when the gap closed and red when it widened. If a chart needs a new field, render it on the existing primitive — don't add a new chart library.
@@ -140,7 +140,7 @@ Phase 3 (D2 divergence diagnostician) and Phase 4 (six-family robustness battery
 
 - **Report Synthesizer (E1)** — single self-contained HTML artifact stitching spec + verification + critique + backtest + diagnosis + robustness with click-through provenance back to the underlying `SupportingQuote`s and `ProvenanceRecord`s. This is overview.md Step 13. Should be a pure rendering layer over already-typed specs — no new LLM call, no schema bloat.
 - **Tradeability Scorecard** — derive turnover / capacity / rebalance frequency / gross-net spread from `BacktestResult`, then an LLM heuristic (Sonnet) emits `{verdict: tradeable|borderline|not_tradeable, reasons: [...]}`. Spec lives in `src/specs/tradeability.py`; agent in `src/agents/analysis/tradeability_scorer.py`. Distinct from D3's implementability verdict (which is fragility-under-stress) — this one is portfolio-construction realism. New tab on the frontend.
-- **Paper-vs-replication diff** — extend A1 to extract `PaperReportedMetrics { sharpe, mean_return, t_stat, ... }` with verbatim `SupportingQuote`s (A2 verifies them same as any other quote). Render a side-by-side diff table on the Backtest tab. This needs a prompt change + spec addition; keep the A1 prompt change small and add a new schema rather than bloating `ReplicationSpec`.
+- **Paper-vs-replication diff** — A1 now extracts `HeadlineClaim` (`src/specs/paper_metrics.py`) with monthly_return + t_stat + window_label + verbatim `SupportingQuote`. A2 verifies the quote at high severity (it's D2's comparison target). The remaining work is a side-by-side "paper says X, we got Y, delta = Δ" table on the Backtest tab; the data is already on the bundle as `verified_spec.spec.headline_claim` and `paper_claim` (the projected flat shape that drives D2). Don't extend the schema — extend the renderer.
 - **News contextualization (guarded)** — optional tab that pulls headlines around drawdown windows. MUST include an A2-style verifier: every headline requires a retrievable URL and a publication date inside the drawdown window, or it's dropped. Gate behind an env flag (e.g. `ENABLE_NEWS_CONTEXT=1`); default off. This is the highest hallucination-risk feature in the roadmap — do not ship without the verifier.
 
 ## Update policy for this file

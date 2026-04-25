@@ -51,6 +51,9 @@ FIELD_SEVERITY: dict[str, SensitivityPriority] = {
     "signal": "high",
     "portfolio": "high",
     "rebalance": "high",
+    # The headline claim's quote is what D2 compares the engine against — a
+    # fabricated or wrong-topic quote here would silently corrupt diagnosis.
+    "headline_claim": "high",
 }
 
 
@@ -105,6 +108,13 @@ def _collect_quotes(
         if sq is not None:
             claims = obj.model_dump(exclude={"supporting_quote"}, mode="json")
             collected.append((path, claims, sq, FIELD_SEVERITY[path]))
+
+    if spec.headline_claim is not None:
+        hc = spec.headline_claim
+        claims = hc.model_dump(exclude={"supporting_quote"}, mode="json")
+        collected.append(
+            ("headline_claim", claims, hc.supporting_quote, FIELD_SEVERITY["headline_claim"])
+        )
 
     for i, flag in enumerate(spec.ambiguities):
         if flag.paper_evidence is not None:

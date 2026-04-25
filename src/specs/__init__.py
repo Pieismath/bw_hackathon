@@ -7,6 +7,7 @@ concerned — agents cannot ship free-form prose into downstream consumers.
 
 from src.specs.provenance import ProvenanceRecord, SourceTier
 from src.specs.claims import PaperClaim, SupportingQuote, ClaimComparison, ClaimVerdict
+from src.specs.paper_metrics import HeadlineClaim, HeadlineMetric
 from src.specs.methodology import (
     AmbiguityFlag,
     SensitivityPriority,
@@ -67,6 +68,8 @@ __all__ = [
     "SupportingQuote",
     "ClaimComparison",
     "ClaimVerdict",
+    "HeadlineClaim",
+    "HeadlineMetric",
     "AmbiguityFlag",
     "SensitivityPriority",
     "UniverseSpec",
