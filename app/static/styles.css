@@ -100,10 +100,6 @@ h1, h2, h3, h4, .serif {
   display: block;
   height: 22px;
   width: auto;
-  padding: 3px 5px;
-  background: #f1f1f2;
-  border: 1px solid var(--border);
-  border-radius: 0;
   flex-shrink: 0;
 }
 
