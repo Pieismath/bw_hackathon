@@ -1267,7 +1267,7 @@ function renderBacktest(bt, paperClaim) {
     block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper claim vs. replication')]));
     const gap = bt.mean_return - paperClaim.monthly_return;
     const gapPct = paperClaim.monthly_return !== 0 ? (bt.mean_return / paperClaim.monthly_return - 1) * 100 : 0;
-    const t = el('table', { class: 'data' });
+    const t = el('table', { class: 'data data-paper-vs' });
     t.appendChild(el('thead', {}, [
       el('tr', {}, [
         el('th', {}, 'Metric'),

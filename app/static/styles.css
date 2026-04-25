@@ -523,6 +523,22 @@ table.data td.num {
 table.data td.pos { color: var(--success); }
 table.data td.neg { color: var(--danger); }
 
+/* Paper claim vs. replication — fixed-width columns + left-aligned cells
+ * so each value sits flush under its header instead of stretching to the
+ * far right of the available space. */
+table.data.data-paper-vs th,
+table.data.data-paper-vs td {
+  text-align: left;
+}
+table.data.data-paper-vs th:first-child,
+table.data.data-paper-vs td:first-child { width: 22%; }
+table.data.data-paper-vs th:nth-child(2),
+table.data.data-paper-vs td:nth-child(2) { width: 26%; }
+table.data.data-paper-vs th:nth-child(3),
+table.data.data-paper-vs td:nth-child(3) { width: 26%; }
+table.data.data-paper-vs th:nth-child(4),
+table.data.data-paper-vs td:nth-child(4) { width: 26%; }
+
 .pill {
   display: inline-block;
   font-size: 11px;
