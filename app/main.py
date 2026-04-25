@@ -662,7 +662,9 @@ def backtest(body: BacktestBody):
         if extra_flags:
             flags = list(result.data_quality_flags) + extra_flags
             result = result.model_copy(update={"data_quality_flags": tuple(flags)})
-        store.close()
+        for _src in store.sources.values():
+            try: _src.close()
+            except AttributeError: pass
         return _sanitize_for_json({
             "backtest": result.model_dump(mode="json"),
             "clip_note": clip_note,
@@ -772,7 +774,9 @@ def robustness(body: RobustnessBody):
                     continue
                 judgment_error = f"D3 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        store.close()
+        for _src in store.sources.values():
+            try: _src.close()
+            except AttributeError: pass
         return _sanitize_for_json({
             "scorecard": scorecard.model_dump(mode="json"),
             "judgment": judgment.model_dump(mode="json") if judgment else None,
@@ -948,7 +952,9 @@ def diagnose_endpoint(body: DiagnoseBody):
                     continue
                 diagnosis_error = f"D2 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        store.close()
+        for _src in store.sources.values():
+            try: _src.close()
+            except AttributeError: pass
         if diagnosis is None:
             return _sanitize_for_json({
                 "diagnosis": None,
@@ -1145,18 +1151,39 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_partial(job_id, bundle)
 
             _set_stage(job_id, "battery", "active")
-            scorecard = run_battery(
-                clipped, store,
-                families=("costs", "liquidity", "capacity", "data_quality"),
-            )
-            # Stash the scorecard immediately so the SPA's Robustness tab
-            # renders even if D3's LLM judgment fails (usage cap, 529s, etc.).
-            bundle["robustness"] = {
-                "scorecard": scorecard.model_dump(mode="json"),
-                "judgment": None,
-            }
-            _set_stage(job_id, "battery", "done")
+            # run_battery internally wraps each family in try/except (so
+            # one family's failure doesn't kill the rest), but a top-level
+            # crash (baseline rerun, infra error) would still bubble. Wrap
+            # here too so the pipeline always reaches D3 / job-success
+            # rather than leaving the user with "Showing partial results".
+            scorecard = None
+            try:
+                scorecard = run_battery(
+                    clipped, store,
+                    families=("costs", "liquidity", "capacity", "data_quality"),
+                )
+                bundle["robustness"] = {
+                    "scorecard": scorecard.model_dump(mode="json"),
+                    "judgment": None,
+                }
+                _set_stage(job_id, "battery", "done")
+            except Exception as battery_err:
+                traceback.print_exc()
+                bundle["robustness"] = {
+                    "scorecard": None,
+                    "judgment": None,
+                    "error": f"{type(battery_err).__name__}: {battery_err}",
+                }
+                _set_stage(job_id, "battery", "failed")
             _set_partial(job_id, bundle)
+
+            if scorecard is None:
+                # Skip D3 if the battery couldn't produce a scorecard — D3
+                # judges the scorecard, so without one there's nothing to
+                # judge. Pipeline still finishes successfully with the
+                # rest of the bundle.
+                _finish_job(job_id, result=_sanitize_for_json(bundle))
+                return
 
             _set_stage(job_id, "d3", "active")
             judgment = judge(
