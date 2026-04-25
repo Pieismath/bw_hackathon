@@ -88,11 +88,13 @@ When the paper reports multiple variants (e.g. JT's grid J ∈ {3,6,9,12} × K �
 
 Never emit multiple `ReplicationSpec` objects or enumerate variants in fields. Variant sweeping is downstream work for the robustness battery (D3) and divergence diagnostician (D2) — not A1's.
 
-### 8. Headline claim — extract the paper's reported number for the variant you chose
+### 8. Headline claim — REQUIRED. Extract the paper's reported number for the variant you chose
 
-When the paper reports a primary numeric result for the variant you selected in rule 7, populate `headline_claim` with that number, its t-statistic if available, the sample window, the paper location, and a verbatim supporting quote that contains the number itself. This is what D2 (downstream) compares the engine's replication against — without it, D2 has nothing to attribute the gap to.
+For the variant you selected in rule 7, populate `headline_claim` with the paper's reported number, its t-statistic if available, the sample window, the paper location, and a verbatim supporting quote that contains the number itself. This is what D2 (downstream) compares the engine's replication against — without it, D2 has nothing to attribute the gap to, and the demo's "paper says X, we got Y" diff is blank.
 
-If the paper is purely theoretical, or if no single number is designated as the headline result for any variant, set `headline_claim` to `null`. **Do not fabricate.** A null headline is strictly better than a hallucinated one.
+This field is **required** for any empirical paper. Do not leave it null when the paper is empirical and reports any quantitative result for the headline variant — that is the most common A1 failure mode and breaks the pipeline silently.
+
+`headline_claim = null` is allowed in **only one** circumstance: the paper is purely theoretical with no empirical replication at all. If the paper is empirical but you cannot identify a single headline number for the chosen variant (e.g. the paper only reports a sweep with no designated primary), do **not** set `null` — instead, raise a **high**-severity `AmbiguityFlag` with `parameter="headline_claim"`, `default_chosen` set to your best inference (the most prominent number you can find, with `reason` saying so explicitly), and still populate `headline_claim` with that inferred value. **Do not fabricate.** A high-severity flagged inference is strictly better than a hallucinated value or a silent null.
 
 ---
 
@@ -359,7 +361,7 @@ Also raise flags for any other choice you made without a verbatim quote backing 
 - [ ] Every unstated choice has an `AmbiguityFlag` at its locked default severity (upgraded only with stated reason).
 - [ ] **For each `supporting_quote`, verify:** does this exact sentence say what this field says? If the quote is "close but about a different thing" (e.g. the quote defines the signal but the field is about execution timing), remove the quote and raise an `AmbiguityFlag` instead.
 - [ ] Each flag whose `default_chosen` was inferred rather than extracted explicitly says so in `reason`.
-- [ ] If a paper-reported headline number exists for the variant chosen in rule 7, `headline_claim` is populated with that number, a `window_label`, a `paper_location`, and a `supporting_quote` that literally contains the value. Otherwise `headline_claim` is `null`.
+- [ ] `headline_claim` is populated with the paper's reported number for the chosen variant — including `window_label`, `paper_location`, and a `supporting_quote` that literally contains the value. `null` is permitted only for purely theoretical papers; empirical papers without a single designated headline must populate the field with an inferred value AND a high-severity `AmbiguityFlag` whose `parameter="headline_claim"`.
 - [ ] The JSON validates against the tool's input schema.
 
 A replication that honestly says "the paper is silent on X so we chose Y" is strictly better than one that confidently asserts "the paper says X" with a misaligned quote. The ambiguities list is a feature, not a limitation.
