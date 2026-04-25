@@ -269,6 +269,22 @@ def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str |
             )
             return spec.model_copy(update={"signal": new_signal}), flag
         return spec, None
+    if sig.kind == "variance_ratio":
+        # variance_ratio is natively implemented in src/engine/signals.py
+        # — no proxy substitution. Default lookback to 60 months (5 years
+        # = 49 overlapping 12-month observations) when A1 didn't supply
+        # one; the spec validator requires >= 24 so we pick a value safely
+        # above the floor.
+        if sig.lookback_months is None or sig.lookback_months < 24:
+            new_signal = sig.model_copy(update={"lookback_months": 60})
+            flag = (
+                "engine fallback: signal.kind='variance_ratio' had "
+                f"lookback_months={sig.lookback_months}; defaulting to 60 "
+                "(5-year window, 49 rolling-12m observations) — sufficient "
+                "for stable variance estimation."
+            )
+            return spec.model_copy(update={"signal": new_signal}), flag
+        return spec, None
     # Non-past_return kinds (custom, fundamental_ratio): substitute a
     # past_return proxy. Many learned/custom signals don't carry a months
     # lookback at all (daily streaks, transformer outputs); when missing,
@@ -575,6 +591,52 @@ def robustness(body: RobustnessBody):
                 "error": f"{type(e).__name__}: {e}",
                 "traceback_tail": tb,
                 "hint": "Likely missing ANTHROPIC_API_KEY (D3 LLM call), missing parquet cache, or engine failure. Check server console.",
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# Factor comparison — Ken French realized factor vs paper claim
+# ---------------------------------------------------------------------------
+
+class FactorCompareBody(BaseModel):
+    spec: dict
+    headline_claim: dict | None = None  # optional HeadlineClaim payload
+
+
+@app.post("/api/factor_compare")
+def factor_compare(body: FactorCompareBody):
+    """Compute the realized Ken French factor return over the paper's window
+    and compare against the paper's claimed headline.
+
+    Pure deterministic computation: reads CSVs from data/ken-french/. No
+    LLM, no engine reruns, no parquet cache required. Always succeeds —
+    `verdict` indicates whether a clean factor mapping + window overlap
+    were possible.
+    """
+    try:
+        from src.factor_compare import compare_to_kf_factor
+        from src.specs import HeadlineClaim
+
+        spec = ReplicationSpec.model_validate(body.spec)
+        claim = (
+            HeadlineClaim.model_validate(body.headline_claim)
+            if body.headline_claim
+            else None
+        )
+        if claim is None and getattr(spec, "headline_claim", None) is not None:
+            claim = spec.headline_claim
+        comparison = compare_to_kf_factor(spec, claim)
+        return _sanitize_for_json({"comparison": comparison.model_dump(mode="json")})
+    except BaseException as e:
+        traceback.print_exc()
+        tb = traceback.format_exc().splitlines()[-1]
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"{type(e).__name__}: {e}",
+                "traceback_tail": tb,
+                "hint": "KF CSVs may be missing from data/ken-french/, or the spec failed validation.",
             },
         )
 

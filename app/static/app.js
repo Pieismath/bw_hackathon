@@ -315,6 +315,27 @@ function refreshRunButton() {
   btn.title = !hasPaper ? 'Upload or pick a paper first' : 'Run A1 → A2 → A3 → backtest → robustness → diagnosis';
 }
 
+function readPaperClaimOverride() {
+  // Optional manual headline-claim override. Returns null when no value
+  // is supplied. Forms a flat paper_claim shape compatible with the rest
+  // of the frontend (legacy bundle.paper_claim consumed by runDiagnosis,
+  // verdict strip, paper-vs-replication table).
+  const retEl = document.getElementById('claim-override-return');
+  const tEl = document.getElementById('claim-override-tstat');
+  const winEl = document.getElementById('claim-override-window');
+  if (!retEl) return null;
+  const retPct = parseFloat(retEl.value);
+  if (Number.isNaN(retPct)) return null;
+  const tstat = parseFloat(tEl ? tEl.value : '');
+  return {
+    monthly_return: retPct / 100,            // % → decimal
+    tstat: Number.isNaN(tstat) ? null : tstat,
+    window: (winEl && winEl.value.trim()) || 'user-supplied override',
+    paper_location: 'manual override (Run config panel)',
+    overridden_by_user: true,
+  };
+}
+
 async function runPipelineFromDials() {
   if (!state.selectedPaperId) {
     log('SYS', 'No paper selected. Upload a PDF or pick from the list.', 'sys');
@@ -323,9 +344,17 @@ async function runPipelineFromDials() {
   if (state.running) return;
   state.running = true;
   refreshRunButton();
+  // Drive the same stepper the upload-path uses. The dials flow skips B
+  // (data mapper) — applyDials is its client-side analog — so mark it done
+  // immediately. Each per-stage helper below toggles its own stepper state.
+  resetStepper();
+  setStage('parse', 'done');
+  setStage('b', 'done');
+  const t0 = performance.now();
   try {
     log('SYS', `Run pipeline → ${state.selectedPaperId} (dial overrides will be applied at each stage).`, 'sys');
     await runExtraction(state.selectedPaperId);
+    collapseStepper(performance.now() - t0);
   } finally {
     state.running = false;
     refreshRunButton();
@@ -522,6 +551,8 @@ async function safeJson(resp) {
 async function runExtraction(paperId) {
   setStatus('Running A1 + A2 (may take 30–90s on first run)…', 'amber');
   log('A1', 'Calling /api/extract (Sonnet + Haiku, cached on disk)…', 'a1');
+  setStage('a1', 'active');
+  setStage('a2', 'active');
   let verifiedSpec = null;
   try {
     const r = await fetch('/api/extract', {
@@ -536,6 +567,8 @@ async function runExtraction(paperId) {
       log('A1', `FAILED: ${msg}`, 'a1');
       log('SYS', hint, 'sys');
       setStatus('Extraction failed', 'red');
+      setStage('a1', 'failed');
+      setStage('a2', 'failed');
       return;
     }
     const body = parsed.body;
@@ -550,6 +583,17 @@ async function runExtraction(paperId) {
     } else {
       log('A1', 'No headline claim extracted (paper has no single designated number) — D2 will skip.', 'a1');
     }
+    // Manual override: when A1 misses the headline number (common for
+    // papers reporting Sharpe ratios or non-standard metrics), the user
+    // can supply it via the Overview "Paper headline" inputs. Override
+    // wins over A1's extraction so the rest of the chain (D2 / D3 /
+    // verdict strip / paper-vs-replication table) has a real comparison
+    // target instead of a placeholder zero.
+    const claimOverride = readPaperClaimOverride();
+    const effectiveClaim = claimOverride || body.paper_claim || null;
+    if (claimOverride) {
+      log('A1', `Headline override applied: ${(claimOverride.monthly_return * 100).toFixed(3)}%/mo · t=${claimOverride.tstat ?? '—'} · window=${claimOverride.window}.`, 'a1');
+    }
     applyBundle({
       paper_id: body.paper_id,
       paper_title: body.paper_title,
@@ -558,11 +602,15 @@ async function runExtraction(paperId) {
       backtest: null,
       robustness: null,
       diagnosis: null,
-      paper_claim: body.paper_claim || null,
+      paper_claim: effectiveClaim,
     });
+    setStage('a1', 'done');
+    setStage('a2', 'done');
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
     setStatus('Error', 'red');
+    setStage('a1', 'failed');
+    setStage('a2', 'failed');
     return;
   }
 
@@ -570,6 +618,10 @@ async function runExtraction(paperId) {
   // (missing parquet cache) or 500 (missing API key) logs a hint and the
   // pipeline continues so the user sees whatever DID complete.
   await runCritique(paperId);
+  // Free, deterministic falsification check — runs even when the engine
+  // can't (paper window pre-1994). Compares paper claim to the realized
+  // KF factor over the paper's exact window.
+  await runFactorCompare(verifiedSpec);
   const bt = await runBacktest(paperId, verifiedSpec);
   if (bt) {
     await runRobustness(paperId, verifiedSpec);
@@ -578,9 +630,44 @@ async function runExtraction(paperId) {
   setStatus('Pipeline complete', 'green');
 }
 
+async function runFactorCompare(verifiedSpec) {
+  const spec = verifiedSpec && verifiedSpec.spec;
+  if (!spec) return;
+  log('KF', 'Calling /api/factor_compare (Ken French realized factor vs claim)…', 'sys');
+  try {
+    const r = await fetch('/api/factor_compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec, headline_claim: spec.headline_claim || null }),
+    });
+    const parsed = await safeJson(r);
+    if (!r.ok || !parsed.ok) {
+      log('KF', `SKIPPED: ${parsed.body.error || `HTTP ${r.status}`}`, 'sys');
+      return;
+    }
+    const fc = parsed.body.comparison;
+    if (!state.bundle) return;
+    state.bundle.factor_compare = fc;
+    // Re-render the Backtest tab so the KF banner appears even before the
+    // engine runs. (renderBacktest no-ops the bt-specific blocks if bt is null.)
+    renderBacktest(state.bundle.backtest, state.bundle.paper_claim);
+    const verdictWord = {
+      supported: 'supported',
+      directional: 'same direction, magnitude differs',
+      falsified: 'falsified',
+      out_of_range: 'window out of KF coverage',
+      no_factor_match: 'no factor match',
+    }[fc.verdict] || fc.verdict;
+    log('KF', `${fc.factor_name} over ${fc.used_start ?? '—'}→${fc.used_end ?? '—'} (n=${fc.n_months}): ${verdictWord}.`, 'sys');
+  } catch (e) {
+    log('KF', `ERROR: ${e.message}`, 'sys');
+  }
+}
+
 async function runCritique(paperId) {
   setStatus('Running A3 adversarial reviewer…', 'amber');
   log('A3', 'Calling /api/critique (Sonnet, forced three criticisms)…', 'a3');
+  setStage('a3', 'active');
   try {
     const r = await fetch('/api/critique', {
       method: 'POST',
@@ -591,20 +678,24 @@ async function runCritique(paperId) {
     if (!r.ok || !parsed.ok) {
       log('A3', `SKIPPED: ${parsed.body.error || `HTTP ${r.status}`}`, 'a3');
       if (parsed.body.hint) log('SYS', parsed.body.hint, 'sys');
+      setStage('a3', 'failed');
       return;
     }
-    if (!state.bundle) return;
+    if (!state.bundle) { setStage('a3', 'failed'); return; }
     state.bundle.critique = parsed.body.critique;
     renderCritique(state.bundle.critique);
     log('A3', `${parsed.body.critique.criticisms.length} criticisms recorded.`, 'a3');
+    setStage('a3', 'done');
   } catch (e) {
     log('A3', `ERROR: ${e.message}`, 'a3');
+    setStage('a3', 'failed');
   }
 }
 
 async function runBacktest(paperId, verified) {
   setStatus('Running backtest engine…', 'amber');
   log('ENGINE', 'Calling /api/backtest (deterministic canonical engine)…', 'sys');
+  setStage('engine', 'active');
   try {
     const dialed = applyDials(verified.spec);
     const dial = readDialForm();
@@ -619,10 +710,11 @@ async function runBacktest(paperId, verified) {
     if (!r.ok || !parsed.ok) {
       log('ENGINE', `SKIPPED: ${parsed.body.error || `HTTP ${r.status}`}`, 'sys');
       if (parsed.body.hint) log('SYS', parsed.body.hint, 'sys');
+      setStage('engine', 'failed');
       return null;
     }
     const bt = parsed.body.backtest;
-    if (!state.bundle) return null;
+    if (!state.bundle) { setStage('engine', 'failed'); return null; }
     state.bundle.backtest = bt;
     state.bundle.window_info = parsed.body.window_info || null;
     renderBacktest(bt, state.bundle.paper_claim);
@@ -630,9 +722,11 @@ async function runBacktest(paperId, verified) {
     renderLineage(state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     log('ENGINE', `n=${bt.n_periods}, μ=${fmtPct(bt.mean_return, 3)}, t=${fmtNum(bt.alpha_tstat, 2)}.`, 'sys');
+    setStage('engine', 'done');
     return bt;
   } catch (e) {
     log('ENGINE', `ERROR: ${e.message}`, 'sys');
+    setStage('engine', 'failed');
     return null;
   }
 }
@@ -640,6 +734,10 @@ async function runBacktest(paperId, verified) {
 async function runRobustness(paperId, verified) {
   setStatus('Running robustness battery (15–30 min on first run)…', 'amber');
   log('D3', 'Calling /api/robustness (6 families + D3 judgment)…', 'a3');
+  // Battery + D3 are bundled into the same /api/robustness call; light up
+  // both stepper pills so the user sees what's running.
+  setStage('battery', 'active');
+  setStage('d3', 'active');
   try {
     const dialed = applyDials(verified.spec);
     const reqBody = { spec: dialed };
@@ -653,9 +751,11 @@ async function runRobustness(paperId, verified) {
     if (!r.ok || !parsed.ok) {
       log('D3', `SKIPPED: ${parsed.body.error || `HTTP ${r.status}`}`, 'a3');
       if (parsed.body.hint) log('SYS', parsed.body.hint, 'sys');
+      setStage('battery', 'failed');
+      setStage('d3', 'failed');
       return;
     }
-    if (!state.bundle) return;
+    if (!state.bundle) { setStage('battery', 'failed'); setStage('d3', 'failed'); return; }
     state.bundle.robustness = parsed.body;
     renderRobustness(state.bundle.robustness);
     renderLineage(state.bundle);
@@ -666,13 +766,20 @@ async function runRobustness(paperId, verified) {
     refreshVerdictStripFromLive(parsed.body, state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     const sc = parsed.body.scorecard;
+    setStage('battery', 'done');
     if (parsed.body.judgment) {
       log('D3', `${sc.n_surviving}/${sc.n_tests} surviving · signal=${parsed.body.judgment.signal_type}.`, 'a3');
+      setStage('d3', 'done');
     } else {
       log('D3', `${sc.n_surviving}/${sc.n_tests} surviving · ${parsed.body.judgment_error || 'judgment unavailable'} (scorecard rendered).`, 'a3');
+      // Battery succeeded; D3 (the LLM wrapper) didn't — flag the wrapper as
+      // failed so the stepper reflects what actually happened.
+      setStage('d3', 'failed');
     }
   } catch (e) {
     log('D3', `ERROR: ${e.message}`, 'a3');
+    setStage('battery', 'failed');
+    setStage('d3', 'failed');
   }
 }
 
@@ -681,12 +788,22 @@ async function runDiagnosis(paperId, verified, bt) {
   // zero and D2 early-exits. Skip unless one was loaded (e.g. demo bundle).
   if (!state.bundle || !state.bundle.paper_claim) {
     log('D2', 'SKIPPED: no paper_claim on bundle (only useful with a claim to compare against).', 'a3');
+    setStage('d2', 'done');
     return;
   }
   const claimMonthly = state.bundle.paper_claim.monthly_return;
   const claimTstat = state.bundle.paper_claim.tstat ?? null;
+  // Self-consistency guard: monthly_return == 0 paired with a non-zero
+  // t-stat is mathematically impossible (t = mean·√N/σ). Treat as
+  // "no usable claim" rather than firing D2 against a phantom zero.
+  if (claimMonthly === 0 && claimTstat !== null && claimTstat !== 0) {
+    log('D2', 'SKIPPED: paper_claim has monthly_return=0 with non-zero t-stat (impossible — A1 hallucinated a placeholder zero).', 'a3');
+    setStage('d2', 'done');
+    return;
+  }
   setStatus('Running D2 divergence diagnostician…', 'amber');
   log('D2', 'Calling /api/diagnose (LLM-proposed mutations × engine reruns)…', 'a3');
+  setStage('d2', 'active');
   try {
     const dialed = applyDials(verified.spec);
     const dial = readDialForm();
@@ -706,16 +823,25 @@ async function runDiagnosis(paperId, verified, bt) {
     if (!r.ok || !parsed.ok) {
       log('D2', `SKIPPED: ${parsed.body.error || `HTTP ${r.status}`}`, 'a3');
       if (parsed.body.hint) log('SYS', parsed.body.hint, 'sys');
+      setStage('d2', 'failed');
       return;
     }
-    if (!state.bundle) return;
+    if (!state.bundle) { setStage('d2', 'failed'); return; }
     state.bundle.diagnosis = parsed.body;
     renderDiagnosis(state.bundle.diagnosis, state.bundle.paper_claim);
     renderLineage(state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
-    log('D2', `${parsed.body.n_experiments} experiments · primary=${parsed.body.diagnosis.primary_cause}.`, 'a3');
+    if (parsed.body.diagnosis) {
+      log('D2', `${parsed.body.n_experiments} experiments · primary=${parsed.body.diagnosis.primary_cause}.`, 'a3');
+      setStage('d2', 'done');
+    } else {
+      // /api/diagnose returns 200 with diagnosis=null when D2 LLM hits 529 etc.
+      log('D2', `${parsed.body.diagnosis_error || 'diagnosis unavailable'}.`, 'a3');
+      setStage('d2', 'failed');
+    }
   } catch (e) {
     log('D2', `ERROR: ${e.message}`, 'a3');
+    setStage('d2', 'failed');
   }
 }
 
@@ -853,7 +979,9 @@ function buildLiveReport(bundle) {
     signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.96 ? 'real' : 'noise';
   }
 
-  const tradeableLabel = tradeableLabel_(implAlpha, confidence, tstat);
+  const proxyMode = detectProxyMode(bt);
+  const noTarget = detectNoTarget(claim);
+  const tradeableLabel = tradeableLabel_(implAlpha, confidence, tstat, { proxyMode, noTarget });
   const paperWindow = (wi && wi.paper_start)
     ? `${wi.paper_start} to ${wi.paper_end}`
     : (spec ? `${spec.start_date} to ${spec.end_date}` : '—');
@@ -883,8 +1011,12 @@ function buildLiveReport(bundle) {
   };
 }
 
-// Mirrors src/agents/synthesis/report_synthesizer._tradeable_label
-function tradeableLabel_(implAlpha, confidence, tstat) {
+// Mirrors src/agents/synthesis/report_synthesizer._tradeable_label,
+// extended with PROXY_ONLY / NO_TARGET structural gates so that running
+// a 12-month-momentum proxy isn't mislabeled as the paper "failing".
+function tradeableLabel_(implAlpha, confidence, tstat, opts = {}) {
+  if (opts.proxyMode) return 'PROXY ONLY';
+  if (opts.noTarget) return 'NO PAPER TARGET';
   if (implAlpha === null || implAlpha === undefined) return 'PENDING';
   if (implAlpha < 0) return 'UNDER WATER';
   if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
@@ -1214,9 +1346,39 @@ function renderCritique(critique) {
 function renderBacktest(bt, paperClaim) {
   const root = $('#backtest-body');
   root.innerHTML = '';
+  // KF factor-comparison banner — render even when bt is null. This is the
+  // free falsification test: did the published Ken French factor realize
+  // the paper's claim over the paper's window? Useful for pre-1994 papers
+  // where the engine can't run a stock-level replication at all.
+  const fc = state.bundle && state.bundle.factor_compare;
+  if (fc) renderFactorCompareBanner(root, fc);
   if (!bt) {
-    root.appendChild(emptyState('trending_up', 'No backtest result. Use the demo bundle or run /api/backtest.'));
+    if (!fc) {
+      root.appendChild(emptyState('trending_up', 'No backtest result. Use the demo bundle or run /api/backtest.'));
+    }
     return;
+  }
+
+  // Structural-mode banner. Loudest possible warning when the engine ran
+  // a proxy strategy or no comparison target exists — both invalidate
+  // any "this strategy performs at X" claim. Goes above everything else.
+  const proxyMode = detectProxyMode(bt);
+  const noTarget = detectNoTarget(paperClaim);
+  if (proxyMode) {
+    const banner = el('div', { class: 'flag-banner sev-fail window-banner' });
+    banner.appendChild(el('div', { class: 'head' }, 'PROXY ONLY — this is NOT a replication of the paper\'s strategy'));
+    banner.appendChild(el('div', { class: 'banner-headline' },
+      'A1 extracted signal.kind=\'custom\' (the paper\'s signal is e.g. variance ratio, learned model, or fundamental ratio that is not yet implemented in src/engine/signals.py). The engine substituted a 12-month past-return momentum proxy and ran the entire backtest + robustness battery on the proxy.'));
+    banner.appendChild(el('div', { class: 'banner-foot' },
+      'Every number on this tab — mean_return, sharpe, alpha_tstat, max_drawdown, decay_by_age, the equity curve, the robustness scorecard, the implementable-alpha verdict — is a result for the proxy strategy. The paper itself may perform very differently. To get a real replication, implement the paper\'s signal in src/engine/signals.py and re-run.'));
+    root.appendChild(banner);
+  }
+  if (!proxyMode && noTarget) {
+    const banner = el('div', { class: 'flag-banner sev-warn' });
+    banner.appendChild(el('div', { class: 'head' }, 'No comparison target — verdict is vs zero, not vs the paper'));
+    banner.appendChild(el('div', {},
+      'A1 did not extract a usable headline claim and no manual override was supplied. The implementable-alpha verdict, gap-attribution narrative, and D2 diagnosis cannot be computed because there\'s nothing to compare against. Enter the paper\'s monthly long-short return and t-stat in the Run config panel\'s "Paper headline" inputs and re-run.'));
+    root.appendChild(banner);
   }
 
   // Window substitution banner — loud warning when the engine ran on a
@@ -1261,8 +1423,17 @@ function renderBacktest(bt, paperClaim) {
     root.appendChild(banner);
   }
 
-  // Comparison
-  if (paperClaim) {
+  // Comparison. Skip the table entirely when the claim is the impossible
+  // (monthly_return=0, tstat!=0) shape — A1 hallucinated a zero placeholder
+  // and the gap row would read "−0.476% (0%)" which is misleading.
+  const claimUsable = paperClaim && !(paperClaim.monthly_return === 0 && paperClaim.tstat != null && paperClaim.tstat !== 0);
+  if (paperClaim && !claimUsable) {
+    const note = el('div', { class: 'flag-banner' });
+    note.appendChild(el('div', { class: 'head' }, 'Paper claim not extracted'));
+    note.appendChild(el('div', {}, '• A1 emitted monthly_return=0 paired with a non-zero t-stat (mathematically impossible). The paper reports a real headline number A1 failed to capture; the comparison table is hidden until headline_claim is supplied manually.'));
+    root.appendChild(note);
+  }
+  if (claimUsable) {
     const block = el('div', { class: 'spec-section' });
     block.appendChild(el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper claim vs. replication')]));
     const gap = bt.mean_return - paperClaim.monthly_return;
@@ -2999,10 +3170,13 @@ function renderVerdictStrip(report) {
   $('#vs-confidence').textContent =
     `confidence: ${h.verdict.confidence} · ${h.verdict.signal_type}`;
 
-  // Left column — paper claim
+  // Left column — paper claim. Guard against the impossible-but-emitted
+  // (value==0 with non-zero t-stat) case: render as "not extracted" so
+  // the verdict strip doesn't claim "+0.000%/mo, t=+2.67".
   const c = h.claim;
-  $('#vs-claim-value').textContent = fmtPctSigned(c.value, 3) + '/mo';
-  $('#vs-claim-tstat').textContent = fmtTstat(c.tstat);
+  const claimSuspicious = c.value === 0 && c.tstat != null && c.tstat !== 0;
+  $('#vs-claim-value').textContent = claimSuspicious ? 'not extracted' : (fmtPctSigned(c.value, 3) + '/mo');
+  $('#vs-claim-tstat').textContent = claimSuspicious ? '' : fmtTstat(c.tstat);
   $('#vs-claim-loc').textContent = c.paper_location || '';
 
   // Right column — implementable verdict
@@ -3055,10 +3229,14 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
 
   if (claim) {
     const cv = $('#vs-claim-value');
-    if (cv) cv.textContent = fmtPctSigned(claim.monthly_return, 3) + '/mo';
     const ct = $('#vs-claim-tstat');
-    if (ct) ct.textContent = fmtTstat(claim.tstat);
     const cl = $('#vs-claim-loc');
+    // Same self-consistency guard as renderVerdictStrip: monthly_return==0
+    // with non-zero tstat is mathematically impossible — A1 emitted a
+    // placeholder zero. Show "not extracted" rather than the phantom number.
+    const suspicious = claim.monthly_return === 0 && claim.tstat != null && claim.tstat !== 0;
+    if (cv) cv.textContent = suspicious ? 'not extracted' : (fmtPctSigned(claim.monthly_return, 3) + '/mo');
+    if (ct) ct.textContent = suspicious ? '' : fmtTstat(claim.tstat);
     if (cl) cl.textContent = claim.paper_location || claim.window || '';
   }
 
@@ -3070,19 +3248,42 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   const sigType = j ? j.signal_type : '—';
   const gap = j ? j.gap_attribution : null;
 
+  // Structural-validity gates: detect engine-proxy mode and missing
+  // claim. When either is on, the alpha number is not a verdict on the
+  // paper — relabel to make that explicit.
+  const proxyMode = detectProxyMode(bundle && bundle.backtest);
+  const noTarget = detectNoTarget(claim);
+
   const iv = $('#vs-impl-value');
-  if (iv) iv.textContent = fmtPctSigned(alpha, 3) + '/mo';
+  if (iv) {
+    if (proxyMode) {
+      iv.textContent = fmtPctSigned(alpha, 3) + '/mo (proxy)';
+    } else if (noTarget) {
+      iv.textContent = fmtPctSigned(alpha, 3) + '/mo (vs zero)';
+    } else {
+      iv.textContent = fmtPctSigned(alpha, 3) + '/mo';
+    }
+  }
   const it = $('#vs-impl-tstat');
   if (it) it.textContent = (j ? '' : fmtTstat(tstat));
-  const tagLabel = tradeableLabel(alpha, tstat ?? 0, conf);
+  const tagLabel = tradeableLabel(alpha, tstat ?? 0, conf, { proxyMode, noTarget });
   const tag = $('#vs-tag');
   if (tag) tag.textContent = tagLabel;
   const verdictCol = $('#vs-col-verdict');
   if (verdictCol) verdictCol.setAttribute('data-tag', tagLabel);
 
-  // Confidence + signal-type subline
+  // Confidence + signal-type subline. When PROXY_ONLY or NO_TARGET, the
+  // signal_type field is meaningless — D3 was judging the wrong thing.
   const cf = $('#vs-confidence');
-  if (cf) cf.textContent = `confidence: ${conf} · ${sigType}`;
+  if (cf) {
+    if (proxyMode) {
+      cf.textContent = 'engine ran a structured proxy — NOT the paper\'s signal';
+    } else if (noTarget) {
+      cf.textContent = 'no paper headline target supplied — verdict is vs zero, not vs paper';
+    } else {
+      cf.textContent = `confidence: ${conf} · ${sigType}`;
+    }
+  }
 
   // Window + gap-attribution row from window_info / judgment
   const wi = robustnessPayload.window_info || {};
@@ -3091,10 +3292,19 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   const ewEl = $('#vs-engine-window');
   if (ewEl) ewEl.textContent = ' ' + (wi.engine_start && wi.engine_end ? `${wi.engine_start} → ${wi.engine_end}` : '—');
   const gaEl = $('#vs-gap-attr');
-  if (gaEl) gaEl.textContent = ' ' + ((gap || '—').replace(/_/g, ' '));
+  if (gaEl) gaEl.textContent = ' ' + ((proxyMode || noTarget) ? 'not applicable (no faithful comparison)' : ((gap || '—').replace(/_/g, ' ')));
 
-  // Why-popover summary
-  const summary = j ? (j.summary || j.implementable_alpha_basis || '') : 'D3 judgment unavailable; showing baseline scorecard numbers.';
+  // Why-popover summary. When proxy / no-target, override D3's narrative
+  // with the structural caveat — D3 was writing about a strategy the
+  // user didn't ask for.
+  let summary;
+  if (proxyMode) {
+    summary = 'The engine could not run the paper\'s actual signal (e.g. variance ratio, learned model, fundamental ratio). It substituted a 12-month past-return proxy and ran the full backtest + robustness battery on that proxy. Every number on this dashboard is a verdict on the proxy, not on the paper. To get a real replication, implement the paper\'s signal in src/engine/signals.py and re-run.';
+  } else if (noTarget) {
+    summary = 'The paper\'s headline number was not supplied (A1 could not extract one and no manual override was entered in the Run config panel). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target. Enter the paper\'s monthly long-short return and t-stat in the override inputs and re-run.';
+  } else {
+    summary = j ? (j.summary || j.implementable_alpha_basis || '') : 'D3 judgment unavailable; showing baseline scorecard numbers.';
+  }
   const sumEl = $('#vs-summary');
   if (sumEl) sumEl.textContent = summary;
   const popover = $('#vs-why-popover');
@@ -3324,12 +3534,82 @@ function interpCostCurve(bps) {
   return c[c.length - 1];
 }
 
-function tradeableLabel(alpha, tstat, confidence) {
+function tradeableLabel(alpha, tstat, confidence, opts = {}) {
+  // Structural-validity gates. None of the alpha-based labels below are
+  // meaningful when the engine ran a proxy strategy or when there's no
+  // paper-claim target to compare against — calling a 12-month-momentum
+  // proxy "UNDER WATER" implies the paper failed, when the truth is the
+  // tool never tested the paper's signal in the first place.
+  if (opts.proxyMode) return 'PROXY ONLY';
+  if (opts.noTarget) return 'NO PAPER TARGET';
   if (alpha == null) return 'UNKNOWN';
   if (alpha < 0) return 'UNDER WATER';
   if (tstat != null && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
   if (alpha < 0.005 || confidence === 'low') return 'BORDERLINE';
   return 'TRADEABLE';
+}
+
+// Inspect a backtest's data_quality_flags to decide whether the engine
+// ran the paper's signal or a proxy. Only the engine's own kind-fallback
+// flag prefix counts — survivorship-bias and clipped-extremes flags do
+// not change what was tested, only how reliable the test was.
+function detectProxyMode(bt) {
+  if (!bt || !bt.data_quality_flags) return false;
+  return bt.data_quality_flags.some((f) =>
+    typeof f === 'string' && f.startsWith('engine fallback: signal.kind=')
+  );
+}
+
+// Render the Ken French factor-comparison banner at the top of the
+// Backtest tab. Honest external check: did the published KF factor
+// realize the paper's claim over the paper's window?
+function renderFactorCompareBanner(root, fc) {
+  const verdictMeta = {
+    supported:       { sev: 'ok',   label: 'Supported by KF factor',          icon: 'verified' },
+    directional:     { sev: 'warn', label: 'Same direction, magnitude differs', icon: 'compare_arrows' },
+    falsified:       { sev: 'fail', label: 'Falsified by KF factor',          icon: 'block' },
+    out_of_range:    { sev: 'info', label: 'Window outside KF coverage',      icon: 'event_busy' },
+    no_factor_match: { sev: 'info', label: 'No KF factor mapping',            icon: 'help_outline' },
+  };
+  const meta = verdictMeta[fc.verdict] || verdictMeta.no_factor_match;
+  const banner = el('div', { class: `flag-banner sev-${meta.sev}` });
+  banner.appendChild(el('div', { class: 'head' }, [
+    el('span', { class: 'material-symbols-outlined', style: 'font-size:16px;vertical-align:-3px;margin-right:6px;' }, meta.icon),
+    `Ken French factor comparison — ${meta.label}`,
+  ]));
+  banner.appendChild(el('div', { class: 'banner-headline' }, fc.verdict_summary));
+  if (fc.realized_monthly_return != null) {
+    const grid = el('div', { class: 'window-grid' });
+    grid.appendChild(el('div', { class: 'window-cell' }, [
+      el('span', { class: 'lbl' }, 'Paper claimed'),
+      el('span', { class: 'val mono' }, fc.claimed_monthly_return != null
+        ? `${(fc.claimed_monthly_return * 100).toFixed(3)}%/mo` + (fc.claimed_tstat != null ? `  t=${fc.claimed_tstat.toFixed(2)}` : '')
+        : '—'),
+    ]));
+    grid.appendChild(el('div', { class: 'window-cell hi' }, [
+      el('span', { class: 'lbl' }, `KF ${fc.factor_name} realized`),
+      el('span', { class: 'val mono' }, `${(fc.realized_monthly_return * 100).toFixed(3)}%/mo  t=${fc.realized_tstat.toFixed(2)}`),
+    ]));
+    grid.appendChild(el('div', { class: 'window-cell' }, [
+      el('span', { class: 'lbl' }, 'Window used'),
+      el('span', { class: 'val mono' }, `${fc.used_start ?? '—'} → ${fc.used_end ?? '—'} (n=${fc.n_months})`),
+    ]));
+    banner.appendChild(grid);
+  }
+  banner.appendChild(el('div', { class: 'banner-foot' },
+    `Source: ${fc.factor_source}. This is a falsification test against the published factor — not a stock-level replication. Sharpe (ann.) of the KF factor in this window: ${fc.realized_sharpe_annualized != null ? fc.realized_sharpe_annualized.toFixed(2) : '—'}.`
+  ));
+  root.appendChild(banner);
+}
+
+function detectNoTarget(claim) {
+  if (!claim) return true;
+  if (claim.monthly_return == null) return true;
+  // The "impossible zero with non-null tstat" shape (extraction_verifier
+  // already drops these to None server-side, but stale caches and the
+  // legacy demo bundle can still surface them).
+  if (claim.monthly_return === 0 && claim.tstat != null && claim.tstat !== 0) return true;
+  return false;
 }
 
 function setCostBps(bps, originator) {

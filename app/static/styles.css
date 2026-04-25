@@ -1296,6 +1296,41 @@ td.muted, .muted {
 .dial-checkbox input[type="checkbox"] {
   accent-color: var(--accent);
 }
+.runconfig-claim-override {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+  margin-top: 8px;
+}
+.runconfig-claim-override > .dial-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.runconfig-claim-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 10px;
+}
+.runconfig-claim-row label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--text-soft);
+  gap: 4px;
+}
+.runconfig-claim-row input {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 7px;
+}
+.runconfig-claim-row .unit {
+  color: var(--text-soft);
+  font-size: 10px;
+}
 .runconfig-foot {
   display: flex;
   justify-content: flex-end;
@@ -1434,6 +1469,8 @@ td.muted, .muted {
 .vs-col-verdict[data-tag="BORDERLINE"] { border-left-color: var(--warning); }
 .vs-col-verdict[data-tag="NOT TRADEABLE AT SCALE"] { border-left-color: var(--danger); }
 .vs-col-verdict[data-tag="UNDER WATER"] { border-left-color: #b3303d; background: rgba(179, 48, 61, 0.08); }
+.vs-col-verdict[data-tag="PROXY ONLY"] { border-left-color: #b08a44; background: rgba(176, 138, 68, 0.10); }
+.vs-col-verdict[data-tag="NO PAPER TARGET"] { border-left-color: #6b7a99; background: rgba(107, 122, 153, 0.10); }
 
 .vs-label {
   font-size: 9.5px;
@@ -1456,6 +1493,8 @@ td.muted, .muted {
 .vs-col-verdict[data-tag="BORDERLINE"] .vs-value { color: var(--warning); }
 .vs-col-verdict[data-tag="NOT TRADEABLE AT SCALE"] .vs-value { color: var(--danger); }
 .vs-col-verdict[data-tag="UNDER WATER"] .vs-value { color: #ff6b78; }
+.vs-col-verdict[data-tag="PROXY ONLY"] .vs-value { color: #d8a857; }
+.vs-col-verdict[data-tag="NO PAPER TARGET"] .vs-value { color: #98a8c4; }
 
 .vs-tstat {
   display: inline-block;
@@ -1497,6 +1536,8 @@ td.muted, .muted {
 .vs-col-verdict[data-tag="BORDERLINE"] .vs-tag { background: rgba(224,164,88,0.18); color: var(--warning); }
 .vs-col-verdict[data-tag="NOT TRADEABLE AT SCALE"] .vs-tag { background: rgba(224,108,117,0.18); color: var(--danger); }
 .vs-col-verdict[data-tag="UNDER WATER"] .vs-tag { background: rgba(179,48,61,0.30); color: #ffb3b8; }
+.vs-col-verdict[data-tag="PROXY ONLY"] .vs-tag { background: rgba(176,138,68,0.25); color: #f0c87a; }
+.vs-col-verdict[data-tag="NO PAPER TARGET"] .vs-tag { background: rgba(107,122,153,0.22); color: #b9c7e0; }
 
 .vs-divider {
   align-self: center;

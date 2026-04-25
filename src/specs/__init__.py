@@ -28,6 +28,11 @@ from src.specs.results import (
     OverallConfidence,
     ReturnConvention,
 )
+from src.specs.factor_comparison import (
+    FactorComparison,
+    KFFactor,
+    ComparisonVerdict,
+)
 from src.specs.verification import (
     SupportCheck,
     SupportStatus,
@@ -87,6 +92,9 @@ __all__ = [
     "FinalizedReplicationResult",
     "OverallConfidence",
     "ReturnConvention",
+    "FactorComparison",
+    "KFFactor",
+    "ComparisonVerdict",
     "SupportCheck",
     "SupportStatus",
     "QuoteVerification",

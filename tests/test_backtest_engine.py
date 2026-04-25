@@ -247,6 +247,117 @@ def test_past_return_signal_direction_inverts_sign():
 
 
 # ---------------------------------------------------------------------------
+# Variance ratio signal (AQR streakiness)
+# ---------------------------------------------------------------------------
+
+def test_variance_ratio_iid_returns_near_one():
+    """For iid returns the variance of compounded annual returns equals
+    12× the variance of monthly returns, so VR ≈ 1. Our overlapping rolling
+    estimator biases the variance downward (correlated samples), so we
+    expect VR slightly below 1 but well above zero. This is the null
+    hypothesis: no streakiness, no mean reversion."""
+    rng = np.random.default_rng(7)
+    n = 80
+    idx = pd.date_range("2010-01-31", periods=n, freq="ME").normalize()
+    rets = rng.normal(0.005, 0.04, size=(n, 1))
+    prices = pd.DataFrame(
+        100 * (1.0 + rets).cumprod(axis=0),
+        index=idx, columns=["IID"],
+    )
+    spec = SignalSpec(
+        name="vr", formula="f", inputs=("close",),
+        kind="variance_ratio", lookback_months=60, skip_months=0,
+    )
+    formation = idx[-1]
+    sig = compute_signal(spec, prices, formation, universe=["IID"])
+    # iid → true VR = 1; overlap-induced downward bias → expect ~[0.4, 1.6].
+    assert 0.3 < sig["IID"] < 1.7
+
+
+def test_variance_ratio_streaky_higher_than_meanreverting():
+    """Streaky stock (positive AR(1) on monthly returns) should rank
+    higher in VR than a mean-reverting stock (negative AR(1)). This is
+    the cross-sectional ordering AQR exploits — high VR = streaky =
+    long, low VR = mean-reverting = short."""
+    rng = np.random.default_rng(13)
+    n = 80
+    idx = pd.date_range("2010-01-31", periods=n, freq="ME").normalize()
+
+    # Streaky: r_t = 0.4 * r_{t-1} + ε  (persistence at monthly horizon
+    # → annual variance > 12× monthly variance)
+    eps_streaky = rng.normal(0, 0.04, size=n)
+    r_streaky = np.zeros(n)
+    for t in range(1, n):
+        r_streaky[t] = 0.4 * r_streaky[t - 1] + eps_streaky[t]
+
+    # Mean-reverting: r_t = -0.4 * r_{t-1} + ε
+    eps_mr = rng.normal(0, 0.04, size=n)
+    r_mr = np.zeros(n)
+    for t in range(1, n):
+        r_mr[t] = -0.4 * r_mr[t - 1] + eps_mr[t]
+
+    rets = np.column_stack([r_streaky, r_mr])
+    prices = pd.DataFrame(
+        100 * (1.0 + rets).cumprod(axis=0),
+        index=idx, columns=["STREAKY", "MEANREV"],
+    )
+    spec = SignalSpec(
+        name="vr", formula="f", inputs=("close",),
+        kind="variance_ratio", lookback_months=60, skip_months=0,
+    )
+    formation = idx[-1]
+    sig = compute_signal(spec, prices, formation, universe=["STREAKY", "MEANREV"])
+    # Cross-section: streaky outranks mean-reverting.
+    assert sig["STREAKY"] > sig["MEANREV"]
+
+
+def test_variance_ratio_direction_inverts_sign():
+    """`long_low` must negate the score so bucket N picks low-VR (the
+    'anti-streaky' tail) — same contract as past_return."""
+    rng = np.random.default_rng(21)
+    n = 80
+    idx = pd.date_range("2010-01-31", periods=n, freq="ME").normalize()
+    rets = rng.normal(0.005, 0.04, size=(n, 2))
+    prices = pd.DataFrame(
+        100 * (1.0 + rets).cumprod(axis=0),
+        index=idx, columns=["X", "Y"],
+    )
+    base = dict(
+        name="vr", formula="f", inputs=("close",),
+        kind="variance_ratio", lookback_months=60, skip_months=0,
+    )
+    formation = idx[-1]
+    sig_high = compute_signal(SignalSpec(**base, direction="long_high"), prices, formation, universe=["X", "Y"])
+    sig_low = compute_signal(SignalSpec(**base, direction="long_low"), prices, formation, universe=["X", "Y"])
+    for sym in ["X", "Y"]:
+        assert sig_low[sym] == pytest.approx(-sig_high[sym])
+
+
+def test_variance_ratio_empty_when_insufficient_history():
+    """Need at least 24 valid monthly observations between pos_start and
+    formation_date — short panels return an empty Series rather than
+    crashing or producing NaN-poisoned signals."""
+    idx = pd.date_range("2020-01-31", periods=20, freq="ME").normalize()
+    prices = pd.DataFrame({"A": [100 * 1.005**i for i in range(20)]}, index=idx)
+    spec = SignalSpec(
+        name="vr", formula="f", inputs=("close",),
+        kind="variance_ratio", lookback_months=60, skip_months=0,
+    )
+    sig = compute_signal(spec, prices, idx[-1], universe=["A"])
+    assert sig.empty
+
+
+def test_variance_ratio_spec_validator_rejects_short_lookback():
+    """Spec validator floors lookback at 24 — anything shorter would not
+    leave enough room for both monthly and rolling-12m variance."""
+    with pytest.raises(ValueError, match="lookback_months >= 24"):
+        SignalSpec(
+            name="vr", formula="f", inputs=("close",),
+            kind="variance_ratio", lookback_months=12,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Newey-West sanity
 # ---------------------------------------------------------------------------
 

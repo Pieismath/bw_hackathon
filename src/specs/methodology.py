@@ -27,7 +27,7 @@ AssetClass = Literal["equity", "bond", "fx", "commodity", "macro", "mixed"]
 
 SignalDirection = Literal["long_high", "long_low"]
 SignalFrequency = Literal["daily", "weekly", "monthly", "quarterly", "annual"]
-SignalKind = Literal["past_return", "fundamental_ratio", "custom"]
+SignalKind = Literal["past_return", "variance_ratio", "fundamental_ratio", "custom"]
 
 Construction = Literal["quintile", "decile", "tercile", "custom_sort"]
 Weighting = Literal["equal", "value", "signal_weighted"]
@@ -102,6 +102,20 @@ class SignalSpec(BaseModel):
             raise ValueError(
                 "kind='past_return' requires lookback_months to be set"
             )
+        if self.kind == "variance_ratio":
+            # VR needs enough history to estimate both variances; with monthly
+            # data we use overlapping 12-month returns, so we need at least
+            # 24 months (one full annual cycle plus 12 more for rolling).
+            if self.lookback_months is None:
+                raise ValueError(
+                    "kind='variance_ratio' requires lookback_months to be set"
+                )
+            if self.lookback_months < 24:
+                raise ValueError(
+                    "kind='variance_ratio' requires lookback_months >= 24 "
+                    "(need at least one full annual cycle plus 12 months of "
+                    "rolling-12m returns to estimate the variance ratio)"
+                )
         return self
 
 

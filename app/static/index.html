@@ -272,6 +272,28 @@
               </div>
             </div>
 
+            <div class="runconfig-claim-override">
+              <span class="dial-label" style="font-weight:600;">
+                Paper headline (optional override)
+                <span class="dial-help" title="When A1 cannot extract the paper's headline number — common for papers that report Sharpe ratios, regression alphas, or non-standard metrics — type the monthly long-short return and t-stat here. Without one, D2 has no comparison target and the verdict strip cannot claim 'implementable alpha vs paper'.">?</span>
+              </span>
+              <div class="runconfig-claim-row">
+                <label>
+                  monthly return
+                  <input type="number" step="0.01" id="claim-override-return" placeholder="e.g. 0.95" />
+                  <span class="unit">%/mo</span>
+                </label>
+                <label>
+                  t-stat
+                  <input type="number" step="0.01" id="claim-override-tstat" placeholder="e.g. 2.67" />
+                </label>
+                <label>
+                  window
+                  <input type="text" id="claim-override-window" placeholder="e.g. Jan 2004 – Dec 2023" />
+                </label>
+              </div>
+            </div>
+
             <div class="runconfig-foot">
               <select class="runconfig-paper-select" id="runconfig-paper-select" title="Paper to run the pipeline on">
                 <option value="">— no paper selected —</option>

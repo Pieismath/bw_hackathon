@@ -321,6 +321,31 @@ def extract_and_verify(
         feedback_history.append(build_retry_feedback(report))
 
     assert spec is not None and report is not None
+    # Self-consistency check on headline_claim: a non-zero Newey-West t-stat
+    # paired with monthly_return == 0.0 is mathematically impossible
+    # (t = mean·√N / std ⇒ mean=0 ⇒ t=0). When A1 emits this combination it
+    # has hallucinated a placeholder zero for the return field while
+    # extracting a real t-stat from elsewhere in the paper — exactly what
+    # happened on AQR Streaks. Downgrade to None so D2 skips and the
+    # frontend doesn't render "+0.000%/mo" with a +2.67 t-stat next to it.
+    if (
+        spec.headline_claim is not None
+        and spec.headline_claim.monthly_return == 0.0
+        and spec.headline_claim.t_stat is not None
+        and spec.headline_claim.t_stat != 0.0
+    ):
+        bad = spec.headline_claim
+        note_addendum = (
+            f" [headline_claim dropped: A1 emitted monthly_return=0.0 paired "
+            f"with t_stat={bad.t_stat} — mathematically impossible. The paper "
+            f"reports a real headline number that A1 failed to extract; D2 will "
+            f"skip until headline_claim is supplied manually.]"
+        )
+        spec = spec.model_copy(update={
+            "headline_claim": None,
+            "notes": (spec.notes + note_addendum)[:].strip(),
+        })
+
     # Record retry metadata on the report
     report_with_meta = report.model_copy(
         update={

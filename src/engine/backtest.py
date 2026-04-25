@@ -57,10 +57,14 @@ def run_backtest(
     gross = spec.portfolio.gross_exposure
 
     # Warmup: need enough history before the first formation date to
-    # compute the signal. For past_return: lookback + skip months.
+    # compute the signal. For past_return: lookback + skip months. For
+    # variance_ratio: lookback + skip + 12 (rolling-12m anchor needs an
+    # extra year before the variance window starts).
     signal_warmup_months = 0
     if spec.signal.kind == "past_return" and spec.signal.lookback_months is not None:
         signal_warmup_months = spec.signal.lookback_months + spec.signal.skip_months
+    elif spec.signal.kind == "variance_ratio" and spec.signal.lookback_months is not None:
+        signal_warmup_months = spec.signal.lookback_months + spec.signal.skip_months + 12
 
     panel_start = (
         pd.Timestamp(spec.start_date)
@@ -95,6 +99,17 @@ def run_backtest(
         mcap_provenance = mcap_q.provenance
 
     data_quality_flags: list[str] = []
+    if spec.signal.kind == "variance_ratio":
+        data_quality_flags.append(
+            "variance_ratio computed on individual stocks. The AQR streaks "
+            "paper sorts JKP factor portfolios (153 factors) by VR, not "
+            "individual equities. The statistic is identical; the cross-"
+            "section is not. Direction and concept of the paper are "
+            "preserved, but the stock-level VR is a different — and noisier "
+            "— object than the factor-level VR. Treat the headline number "
+            "as concept-faithful, NOT as a like-for-like replication of the "
+            "paper's portfolio."
+        )
     if spec.portfolio.use_nyse_breakpoints:
         data_quality_flags.append(
             "NYSE breakpoints requested but exchange flags not available "

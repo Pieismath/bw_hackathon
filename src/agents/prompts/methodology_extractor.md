@@ -247,8 +247,12 @@ The literal title. No quote needed.
 - `name` — e.g. `"past_return_6_1"`
 - `formula` — human-readable, e.g. `"p(t-1) / p(t-7) - 1"`
 - `inputs` — data fields required, e.g. `("close",)` or `("revenue", "cogs", "total_assets")`
-- `kind` — `"past_return"` (momentum / reversal), `"fundamental_ratio"`, or `"custom"`
-- `lookback_months` — required when `kind="past_return"`
+- `kind` — one of:
+   - `"past_return"` — momentum / reversal signals based on cumulative price return over a window. Set `lookback_months` and `skip_months`.
+   - `"variance_ratio"` — AQR-style "streakiness" signals defined as `Var(annual_return) / (12 × Var(monthly_return))` over a long lookback window. The canonical example is the 2024 AQR paper "The Hidden Value of Streaky Returns in Stock Portfolios" (long high-VR, short low-VR). High VR ⇒ persistent / streaky returns; low VR ⇒ mean-reverting. Set `lookback_months` to the variance estimation window (the engine requires `lookback_months >= 24`; 60 = 5 years is a sensible default). Use this kind for any paper whose primary signal is a variance ratio, autocorrelation statistic, or "streakiness" measure — do NOT mark these as `"custom"`.
+   - `"fundamental_ratio"` — accounting-ratio sorts (P/B, gross-profitability, accruals, debt-issuance, etc.). The engine does not yet implement this kind; mark it accurately and the engine layer will substitute a structured proxy with an honest data-quality flag.
+   - `"custom"` — anything else: learned models (transformers, deep nets), regression betas, sentiment scores, news-derived signals, peer-based metrics. The engine will substitute a structured proxy.
+- `lookback_months` — required when `kind="past_return"` or `kind="variance_ratio"` (must be `>= 24` for variance_ratio)
 - `skip_months` — the "skip-month" convention baked into the signal definition. **This is NOT the execution lag.** For JT's 6-month formation with 1-month skip: `skip_months=1`.
 - `direction` — `"long_high"` if buy the top rank, `"long_low"` if buy the bottom rank
 - `frequency` — how often the signal is recomputed
@@ -294,7 +298,9 @@ The paper's own reported headline number for the variant you selected. Used down
 
 The supporting quote should literally contain the number so a human reviewer can confirm the linkage at a glance. If the paper reports the value only as a percentage (`0.95%`) and not as the decimal, cite the percentage form verbatim — the value field still uses decimal.
 
-Set `headline_claim = null` if and only if: the paper is theoretical with no empirical result, OR the paper reports no single number designated as the headline for any variant. Do not fabricate. A null claim is strictly better than a hallucinated one.
+Set `headline_claim = null` if and only if: the paper is theoretical with no empirical result, OR the paper reports no single number designated as the headline for any variant, OR you cannot find a clean monthly long-short return value in the paper. Do not fabricate. A null claim is strictly better than a hallucinated one.
+
+**NEVER use `monthly_return = 0.0` as a placeholder.** A non-zero t-statistic with a zero monthly return is mathematically impossible (t = mean·√N / σ); a downstream consistency check will reject and drop the entire claim. If the paper reports a t-statistic but the corresponding mean monthly return is not stated as a clean number you can cite verbatim — for example, the paper reports an annualized Sharpe ratio, an alpha from a regression with no monthly long-short row, or only a percentile-spread chart — set the entire `headline_claim` to `null`. Never extract the t-statistic in isolation.
 
 ### `notes` (string)
 Anything a human reviewer should know that doesn't fit elsewhere. Keep under 500 characters.
