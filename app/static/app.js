@@ -1015,7 +1015,7 @@ function buildLiveReport(bundle) {
     implAlpha = bt.mean_return;
     tstat = bt.alpha_tstat;
     confidence = 'medium';
-    signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.96 ? 'real' : 'noise';
+    signalType = bt.alpha_tstat != null && Math.abs(bt.alpha_tstat) >= 1.3 ? 'real' : 'noise';
   }
 
   const proxyMode = detectProxyMode(bt);
@@ -1058,7 +1058,7 @@ function tradeableLabel_(implAlpha, confidence, tstat, opts = {}) {
   if (opts.noTarget) return 'NO PAPER TARGET';
   if (implAlpha === null || implAlpha === undefined) return 'PENDING';
   if (implAlpha < 0) return 'UNDER WATER';
-  if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
+  if (tstat !== null && tstat !== undefined && Math.abs(tstat) < 1.3) return 'NOT TRADEABLE AT SCALE';
   if (implAlpha < 0.0050 || confidence === 'low') return 'BORDERLINE';
   return 'TRADEABLE';
 }
@@ -3692,7 +3692,7 @@ function tradeableLabel(alpha, tstat, confidence, opts = {}) {
   if (opts.noTarget) return 'NO PAPER TARGET';
   if (alpha == null) return 'UNKNOWN';
   if (alpha < 0) return 'UNDER WATER';
-  if (tstat != null && Math.abs(tstat) < 1.96) return 'NOT TRADEABLE AT SCALE';
+  if (tstat != null && Math.abs(tstat) < 1.3) return 'NOT TRADEABLE AT SCALE';
   if (alpha < 0.005 || confidence === 'low') return 'BORDERLINE';
   return 'TRADEABLE';
 }

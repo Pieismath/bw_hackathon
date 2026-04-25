@@ -1,11 +1,23 @@
-"""Step 11.5 — Execution lag sweep.
+"""Step 11.5 — Signal-staleness sweep.
 
-For each lag in {0, 1, 2, 3, 5, 10, 20} business days, mutate
-`rebalance.execution_lag_days` and rerun the engine. Headline metric:
-`lag_half_life_days` — the lag at which mean monthly return falls to 50%
-of the T+0 baseline. Coarser than a daily-decomposition decay profile
-but already enough to classify signal type (microstructure / information
-/ structural).
+Originally swept `rebalance.execution_lag_days` in {0,1,2,3,5,10,20}
+business days. Problem: the engine rebalances on month-end-anchored
+calendar, so any sub-month lag rounds to the same monthly cohort and
+every row of the lag table comes back identical to baseline. Useless
+for any monthly paper, which is most of them.
+
+Now sweeps `signal.skip_months` in {0,1,2,3,6}. Same conceptual question
+("how stale can the signal be before the alpha disappears?"), but the
+mutation actually produces different engine output. skip_months=1 is
+the canonical Jegadeesh-1990 microstructure dodge; skip_months=6 means
+"use returns from t-12 to t-6, hold from t+1" — a meaningfully different
+signal.
+
+`headline_metric` is still mean monthly return. `headline_tstat` is
+still Newey-West. The half-life is now expressed in months, not days
+— `lag_half_life_days` keeps its name on the wire (D3 + UI consume it
+opaquely) but its semantic units have shifted. Acceptable for the
+hackathon; clean rename is Phase 5.5 work.
 
 Run order matters: this stress family runs first in the battery so D3's
 `signal_type` field has data to chew on by the time it writes the summary.
@@ -17,32 +29,38 @@ from src.agents.validation import run_backtest_cached
 from src.data.store import PointInTimeDataStore
 from src.specs import ReplicationSpec, StressTestResult
 
-DEFAULT_LAGS = (0, 1, 2, 3, 5, 10, 20)
+DEFAULT_SKIPS = (0, 1, 2, 3, 6)
 SURVIVING_TSTAT = 1.5
 
 
 def run_lag_sweep(
     spec: ReplicationSpec,
     store: PointInTimeDataStore,
-    lags: tuple[int, ...] = DEFAULT_LAGS,
+    skips: tuple[int, ...] = DEFAULT_SKIPS,
     transaction_cost_bps: float = 0.0,
 ) -> list[StressTestResult]:
-    """Rerun the engine at each lag value. Returns one StressTestResult per lag."""
+    """Rerun the engine at each `signal.skip_months` value. Returns one
+    StressTestResult per skip. (Function name + family kept as 'lag' for
+    backward compatibility with D3 / UI which group on family.)"""
     results: list[StressTestResult] = []
-    for lag in lags:
-        new_rebalance = spec.rebalance.model_copy(update={"execution_lag_days": lag})
-        mutated = spec.model_copy(update={"rebalance": new_rebalance})
+    for skip in skips:
+        new_signal = spec.signal.model_copy(update={"skip_months": skip})
+        mutated = spec.model_copy(update={"signal": new_signal})
         bt = run_backtest_cached(mutated, store, transaction_cost_bps=transaction_cost_bps)
         results.append(
             StressTestResult(
-                name=f"lag_{lag}d",
+                name=f"skip_{skip}m",
                 family="lag",
-                parameter_swept={"execution_lag_days": lag},
+                parameter_swept={"skip_months": skip},
                 headline_metric=bt.mean_return,
                 headline_tstat=bt.alpha_tstat,
                 n_periods=bt.n_periods,
                 surviving=(bt.mean_return > 0 and bt.alpha_tstat > SURVIVING_TSTAT),
-                notes=f"engine rerun with execution_lag_days={lag}",
+                notes=(
+                    f"engine rerun with signal.skip_months={skip} "
+                    f"(monthly engine ignores sub-month lags; this is the "
+                    f"semantically meaningful staleness sweep)"
+                ),
                 spec_hash=bt.spec_hash,
             )
         )
@@ -50,34 +68,34 @@ def run_lag_sweep(
 
 
 def compute_lag_half_life(results: list[StressTestResult]) -> float | None:
-    """Find the lag (in business days) at which mean_return decays to 50% of
-    the T+0 baseline. Linear interpolation between adjacent points; None if
-    alpha is non-positive at T+0 or never falls below half over the swept range.
+    """Find the skip (in months) at which mean_return decays to 50% of the
+    skip=0 baseline. Linear interpolation between adjacent points; None if
+    alpha is non-positive at skip=0 or never falls below half over the
+    swept range.
 
-    A `None` half-life with negative T+0 alpha → signal is `stale`.
-    A `None` half-life with positive T+0 alpha that stays high → signal is `structural`.
-    Caller (D3) interprets None vs numeric.
+    A `None` half-life with negative baseline alpha → signal is `stale`.
+    A `None` half-life with positive baseline alpha that stays high →
+    signal is `structural`. Caller (D3) interprets None vs numeric.
     """
-    by_lag = {
-        int(r.parameter_swept["execution_lag_days"]): r.headline_metric
+    by_skip = {
+        int(r.parameter_swept.get("skip_months", r.parameter_swept.get("execution_lag_days", 0))): r.headline_metric
         for r in results
     }
-    if 0 not in by_lag:
+    if 0 not in by_skip:
         return None
-    baseline = by_lag[0]
+    baseline = by_skip[0]
     if baseline <= 0:
         return None  # nothing to decay from
     target = 0.5 * baseline
-    sorted_lags = sorted(by_lag.keys())
-    for i in range(1, len(sorted_lags)):
-        prev_lag = sorted_lags[i - 1]
-        curr_lag = sorted_lags[i]
-        prev_val = by_lag[prev_lag]
-        curr_val = by_lag[curr_lag]
+    sorted_skips = sorted(by_skip.keys())
+    for i in range(1, len(sorted_skips)):
+        prev_s = sorted_skips[i - 1]
+        curr_s = sorted_skips[i]
+        prev_val = by_skip[prev_s]
+        curr_val = by_skip[curr_s]
         if prev_val > target >= curr_val:
-            # Linear interpolation
             if prev_val == curr_val:
-                return float(curr_lag)
+                return float(curr_s)
             frac = (prev_val - target) / (prev_val - curr_val)
-            return prev_lag + frac * (curr_lag - prev_lag)
+            return prev_s + frac * (curr_s - prev_s)
     return None  # never fell to half over the swept range
