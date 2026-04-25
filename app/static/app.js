@@ -1,7 +1,7 @@
 // Paper Replication Machine — MVP UI controller.
 // Fetches /api/demo or runs /api/extract on uploaded PDFs, then renders the
 // bundle across Overview / Spec / Verification / Critique / Backtest /
-// Robustness / Diagnosis / Provenance.
+// Robustness / Diagnosis / Lineage.
 
 const state = {
   bundle: null,
@@ -487,6 +487,14 @@ async function runExtraction(paperId) {
     verifiedSpec = body.verified_spec;
     log('A1', `Extracted spec. Verification → ${verifiedSpec.report.overall_confidence}.`, 'a1');
     log('A2', `${verifiedSpec.report.n_checks} quote checks; ${verifiedSpec.report.n_failed_high} high-severity failures.`, 'a2');
+    // body.paper_claim is /api/extract's projection of spec.headline_claim onto
+    // the legacy flat shape D2 frontend reads (monthly_return, tstat, window).
+    // Null when A1 found no headline number to extract — D2 will skip.
+    if (body.paper_claim) {
+      log('A1', `Headline claim → ${fmtPct(body.paper_claim.monthly_return, 3)}/mo (t=${fmtNum(body.paper_claim.tstat, 2)}) over ${body.paper_claim.window}.`, 'a1');
+    } else {
+      log('A1', 'No headline claim extracted (paper has no single designated number) — D2 will skip.', 'a1');
+    }
     applyBundle({
       paper_id: body.paper_id,
       paper_title: body.paper_title,
@@ -495,7 +503,7 @@ async function runExtraction(paperId) {
       backtest: null,
       robustness: null,
       diagnosis: null,
-      paper_claim: null,
+      paper_claim: body.paper_claim || null,
     });
   } catch (e) {
     log('SYS', `ERROR: ${e.message}`, 'sys');
@@ -564,7 +572,7 @@ async function runBacktest(paperId, verified) {
     state.bundle.window_info = parsed.body.window_info || null;
     renderBacktest(bt, state.bundle.paper_claim);
     renderKPIs(bt);
-    renderProvenance(bt);
+    renderLineage(state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     log('ENGINE', `n=${bt.n_periods}, μ=${fmtPct(bt.mean_return, 3)}, t=${fmtNum(bt.alpha_tstat, 2)}.`, 'sys');
     return bt;
@@ -595,9 +603,14 @@ async function runRobustness(paperId, verified) {
     if (!state.bundle) return;
     state.bundle.robustness = parsed.body;
     renderRobustness(state.bundle.robustness);
+    renderLineage(state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     const sc = parsed.body.scorecard;
-    log('D3', `${sc.n_surviving}/${sc.n_tests} surviving · signal=${parsed.body.judgment.signal_type}.`, 'a3');
+    if (parsed.body.judgment) {
+      log('D3', `${sc.n_surviving}/${sc.n_tests} surviving · signal=${parsed.body.judgment.signal_type}.`, 'a3');
+    } else {
+      log('D3', `${sc.n_surviving}/${sc.n_tests} surviving · ${parsed.body.judgment_error || 'judgment unavailable'} (scorecard rendered).`, 'a3');
+    }
   } catch (e) {
     log('D3', `ERROR: ${e.message}`, 'a3');
   }
@@ -638,6 +651,7 @@ async function runDiagnosis(paperId, verified, bt) {
     if (!state.bundle) return;
     state.bundle.diagnosis = parsed.body;
     renderDiagnosis(state.bundle.diagnosis, state.bundle.paper_claim);
+    renderLineage(state.bundle);
     if (parsed.body.clip_note) log('SYS', parsed.body.clip_note, 'sys');
     log('D2', `${parsed.body.n_experiments} experiments · primary=${parsed.body.diagnosis.primary_cause}.`, 'a3');
   } catch (e) {
@@ -727,7 +741,7 @@ function applyBundle(bundle) {
   renderBacktest(bundle.backtest, bundle.paper_claim);
   renderRobustness(bundle.robustness);
   renderDiagnosis(bundle.diagnosis, bundle.paper_claim);
-  renderProvenance(bundle.backtest);
+  renderLineage(bundle);
   renderKPIs(bundle.backtest);
   setStatus('Ready — bundle loaded', 'green');
 }
@@ -790,6 +804,18 @@ function renderSpec(verified) {
     });
   }
   root.appendChild(overrideList);
+
+  // Headline claim — what the paper says about the variant A1 chose. Drives D2.
+  if (spec.headline_claim) {
+    const hc = spec.headline_claim;
+    root.appendChild(specBlock('Headline claim (paper-reported)', {
+      'metric': [hc.metric, false],
+      'monthly_return': [fmtPct(hc.monthly_return, 3), false],
+      't_stat': [hc.t_stat == null ? '—' : fmtNum(hc.t_stat, 2), false],
+      'window_label': [hc.window_label, false],
+      'paper_location': [hc.paper_location, false],
+    }, hc.supporting_quote));
+  }
 
   root.appendChild(specBlock('Header', {
     'paper_id': [spec.paper_id, false],
@@ -1497,6 +1523,17 @@ function renderRobustness(robustness) {
   }
   const { scorecard, judgment } = robustness;
 
+  // D3-unavailable banner (Anthropic 529 / rate limit) — surface the
+  // scorecard anyway so the user keeps the deterministic battery work.
+  if (!judgment && robustness.judgment_error) {
+    const banner = el('div', { class: 'flag-banner window-banner sev-warn' });
+    banner.appendChild(el('div', { class: 'head' }, 'D3 narrative unavailable'));
+    banner.appendChild(el('div', { class: 'banner-headline' },
+      `${robustness.judgment_error}. The deterministic stress-test scorecard below is complete; only the LLM-written verdict is missing. Reload the page in a minute and click Run pipeline again to retry.`
+    ));
+    root.appendChild(banner);
+  }
+
   // Verdict banner
   if (judgment) {
     const verdict = el('div', { class: 'verdict-card' }, [
@@ -1811,13 +1848,13 @@ function renderDiagnosis(payload, paperClaim) {
   const root = $('#diagnosis-body');
   root.innerHTML = '';
   if (!payload) {
-    root.appendChild(emptyState('biotech', 'No divergence diagnosis. Load the demo bundle or POST /api/diagnose.'));
+    root.appendChild(diagnosisWaitingState(paperClaim));
     return;
   }
   // /api/diagnose and the demo bundle wrap the payload as {diagnosis, n_experiments}.
   const diagnosis = payload.diagnosis || payload;
   if (!diagnosis.primary_cause) {
-    root.appendChild(emptyState('biotech', 'No divergence diagnosis. Load the demo bundle or POST /api/diagnose.'));
+    root.appendChild(diagnosisWaitingState(paperClaim));
     return;
   }
 
@@ -2102,38 +2139,308 @@ function buildGapWaterfall(muts, paperClaim) {
   return wrap;
 }
 
-// ---------- Provenance tab ----------
+// ---------- Lineage tab (was: Provenance) ----------
+//
+// Interactive drill-down across the full bundle: pipeline stages, data
+// sources, every supporting quote (filterable + click-to-jump), data-quality
+// flags, and (when present) the D2 mutation chain. Replaces the flat
+// two-card provenance view that only consumed bt.provenance.
 
-function renderProvenance(bt) {
+function renderLineage(bundle) {
   const root = $('#provenance-body');
   root.innerHTML = '';
-  if (!bt || !bt.provenance) {
-    root.appendChild(emptyState('hub', 'No provenance chain to show.'));
+  if (!bundle) {
+    root.appendChild(emptyState('account_tree', 'No bundle loaded. Run extraction or load the demo.'));
     return;
   }
-  // Our demo stops at 2 levels, but real runs chain deeper.
-  const engine = bt.provenance;
-  const engineNode = el('div', { class: 'prov-node synthesized' }, [
-    el('div', { class: 'tier' }, `Level 2 · ${capitalize(engine.source_tier)}`),
-    el('div', { class: 'source' }, engine.source_id),
-    el('div', { class: 'note' }, [
-      `record_id: ${engine.record_id}`,
-      el('br'), `as_of_date: ${engine.as_of_date ?? '—'}`,
-      el('br'), `retrieved_at: ${engine.retrieved_at}`,
-      ...(engine.notes ? [el('br'), `notes: ${engine.notes}`] : []),
+
+  const verified = bundle.verified_spec;
+  const spec = verified ? verified.spec : null;
+  const bt = bundle.backtest;
+  const critique = bundle.critique;
+  const diagnosis = bundle.diagnosis ? (bundle.diagnosis.diagnosis || bundle.diagnosis) : null;
+  const robustness = bundle.robustness;
+
+  // Toolbar — search across all quote bodies + counter
+  const quotes = collectAllQuotes(bundle);
+  const stats = el('span', { class: 'lineage-stats', id: 'lineage-stats' }, '');
+  const search = el('input', {
+    type: 'text', placeholder: 'Filter quotes by text, page, or field…',
+    class: 'lineage-search', id: 'lineage-search',
+    oninput: (ev) => filterLineageQuotes(ev.target.value, quotes.length),
+  });
+  root.appendChild(el('div', { class: 'lineage-toolbar' }, [search, stats]));
+
+  // Section 1 — Pipeline stages (clickable, jump to source tab)
+  root.appendChild(buildLineagePipelineSection(bundle, verified, bt, critique, diagnosis, robustness));
+
+  // Section 2 — Data sources & quality flags (from bt.provenance)
+  root.appendChild(buildLineageSourcesSection(bt));
+
+  // Section 3 — Quotes index (the meat — every supporting quote across the bundle)
+  root.appendChild(buildLineageQuotesSection(quotes));
+
+  // Section 4 — D2 mutation chain (only when D2 ran)
+  if (diagnosis && (diagnosis.mutation_results || []).length) {
+    root.appendChild(buildLineageMutationsSection(diagnosis));
+  }
+
+  // Initialize counter
+  filterLineageQuotes('', quotes.length);
+}
+
+// Collect every supporting quote across the bundle into one flat list with
+// enough metadata that the UI can render and filter them, and offer a jump
+// link back to the tab where the quote already lives.
+function collectAllQuotes(bundle) {
+  const out = [];
+  const verified = bundle.verified_spec;
+  const spec = verified ? verified.spec : null;
+
+  if (spec) {
+    const fields = ['universe', 'signal', 'portfolio', 'rebalance'];
+    fields.forEach((f) => {
+      const q = spec[f] && spec[f].supporting_quote;
+      if (q) out.push({ source: 'spec', path: f, page: q.page, text: q.text, conf: q.match_confidence, verified: q.verified, tab: 'spec' });
+    });
+    if (spec.headline_claim && spec.headline_claim.supporting_quote) {
+      const q = spec.headline_claim.supporting_quote;
+      out.push({ source: 'spec', path: 'headline_claim', page: q.page, text: q.text, conf: q.match_confidence, verified: q.verified, tab: 'spec' });
+    }
+    (spec.ambiguities || []).forEach((a, i) => {
+      if (a.paper_evidence) {
+        const q = a.paper_evidence;
+        out.push({ source: 'spec', path: `ambiguities[${i}] · ${a.parameter}`, page: q.page, text: q.text, conf: q.match_confidence, verified: q.verified, tab: 'spec' });
+      }
+    });
+  }
+
+  if (verified && verified.report && verified.report.checks) {
+    verified.report.checks.forEach((c) => {
+      const q = c.quote;
+      if (q) out.push({
+        source: 'verification', path: c.field_path,
+        page: q.page, text: q.text, conf: q.match_confidence, verified: q.verified,
+        tab: 'verification',
+        verdict: c.failed ? 'fail' : (c.support_check && c.support_check.supports === 'partial' ? 'partial' : 'pass'),
+      });
+    });
+  }
+
+  if (bundle.critique && bundle.critique.criticisms) {
+    bundle.critique.criticisms.forEach((c, i) => {
+      if (c.evidence_quote && c.evidence_quote.text) {
+        const q = c.evidence_quote;
+        out.push({ source: 'critique', path: `criticism[${i}] · ${c.category}`, page: q.page, text: q.text, conf: q.match_confidence, verified: q.verified, tab: 'critique' });
+      }
+    });
+  }
+
+  return out;
+}
+
+function buildLineagePipelineSection(bundle, verified, bt, critique, diagnosis, robustness) {
+  const stages = [];
+
+  if (verified) {
+    const r = verified.report;
+    stages.push({
+      stage: 'A1 + A2', tab: 'spec',
+      summary: `Extracted ReplicationSpec · ${r.n_checks} quotes verified · confidence ${r.overall_confidence} · ${r.retry_count} retr${r.retry_count === 1 ? 'y' : 'ies'}`,
+    });
+  } else {
+    stages.push({ stage: 'A1 + A2', tab: null, summary: 'Not run' });
+  }
+
+  if (critique && critique.criticisms) {
+    stages.push({
+      stage: 'A3', tab: 'critique',
+      summary: `${critique.criticisms.length} criticisms · severity-mixed adversarial review`,
+    });
+  } else {
+    stages.push({ stage: 'A3', tab: null, summary: 'Not run' });
+  }
+
+  if (bt) {
+    stages.push({
+      stage: 'Engine', tab: 'backtest',
+      summary: `${bt.n_periods} periods · μ=${fmtPct(bt.mean_return, 3)} · t=${fmtNum(bt.alpha_tstat, 2)} · spec_hash ${bt.spec_hash || '—'}`,
+    });
+  } else {
+    stages.push({ stage: 'Engine', tab: null, summary: 'Not run' });
+  }
+
+  if (diagnosis && diagnosis.primary_cause) {
+    stages.push({
+      stage: 'D2', tab: 'diagnosis',
+      summary: `${diagnosis.experiments_run} experiments · primary=${diagnosis.primary_cause} · residual ${fmtPct(diagnosis.residual_abs_gap, 3)}`,
+    });
+  } else if (bundle.paper_claim) {
+    stages.push({ stage: 'D2', tab: null, summary: 'Awaiting backtest (claim ready)' });
+  } else {
+    stages.push({ stage: 'D2', tab: null, summary: 'No paper claim — skipped' });
+  }
+
+  if (robustness && robustness.scorecard) {
+    const sc = robustness.scorecard;
+    const sig = robustness.judgment ? robustness.judgment.signal_type : '—';
+    stages.push({
+      stage: 'D3', tab: 'robustness',
+      summary: `${sc.n_surviving}/${sc.n_tests} surviving · signal=${sig}`,
+    });
+  } else {
+    stages.push({ stage: 'D3', tab: null, summary: 'Not run' });
+  }
+
+  const body = el('div', { class: 'section-body' });
+  stages.forEach((s) => {
+    const isActive = !!s.tab;
+    const row = el('div', { class: 'lineage-stage-row' + (isActive ? '' : ' dim') }, [
+      el('span', { class: 'stage-name' }, s.stage),
+      el('span', { class: 'stage-summary' }, s.summary),
+      isActive ? el('span', { class: 'stage-cta' }, `→ ${s.tab}`) : null,
+    ]);
+    if (isActive) row.addEventListener('click', () => showTab(s.tab));
+    body.appendChild(row);
+  });
+
+  const section = el('details', { class: 'lineage-section', open: 'open' }, [
+    el('summary', {}, [
+      el('span', { class: 'summary-title' }, 'Pipeline stages'),
+      el('span', { class: 'summary-meta' }, `${stages.filter((s) => !!s.tab).length}/${stages.length} ran`),
     ]),
+    body,
   ]);
-  // Parent we don't have the full body for; derive from flags.
-  const dataNode = el('div', { class: 'prov-node' }, [
-    el('div', { class: 'tier' }, `Level 1 · Primary`),
-    el('div', { class: 'source' }, 'defeatbeta_yahoo (derived parent)'),
-    el('div', { class: 'note' }, [
-      `parent_ids: ${(engine.parent_ids || []).join(', ') || '—'}`,
-      ...(bt.data_quality_flags || []).map((f) => el('div', {}, `flag: ${f}`)),
+  return section;
+}
+
+function buildLineageSourcesSection(bt) {
+  const body = el('div', { class: 'section-body' });
+  if (!bt || !bt.provenance) {
+    body.appendChild(el('div', { class: 'lineage-no-results' }, 'No backtest provenance yet. Run the engine to populate this section.'));
+  } else {
+    const engine = bt.provenance;
+    body.appendChild(el('div', { class: 'lineage-card' }, [
+      el('div', { class: 'card-head' }, [
+        el('span', { class: 'card-tag' }, `Level 2 · ${capitalize(engine.source_tier)}`),
+        el('span', { class: 'card-meta' }, engine.source_id),
+      ]),
+      el('div', { class: 'card-meta' }, [
+        `record_id: ${engine.record_id}`,
+        el('br'),
+        `as_of: ${engine.as_of_date ?? '—'} · retrieved: ${engine.retrieved_at}`,
+        ...(engine.notes ? [el('br'), engine.notes] : []),
+      ]),
+    ]));
+    body.appendChild(el('div', { class: 'lineage-card' }, [
+      el('div', { class: 'card-head' }, [
+        el('span', { class: 'card-tag' }, 'Level 1 · Primary'),
+        el('span', { class: 'card-meta' }, 'defeatbeta_yahoo (parent)'),
+      ]),
+      el('div', { class: 'card-meta' }, `parent_ids: ${(engine.parent_ids || []).join(', ') || '—'}`),
+    ]));
+    (bt.data_quality_flags || []).forEach((f) => {
+      body.appendChild(el('div', { class: 'lineage-flag' }, `⚠ ${f}`));
+    });
+  }
+  return el('details', { class: 'lineage-section', open: 'open' }, [
+    el('summary', {}, [
+      el('span', { class: 'summary-title' }, 'Data sources & quality flags'),
+      el('span', { class: 'summary-meta' }, bt && bt.provenance ? '2 records' : '—'),
     ]),
+    body,
   ]);
-  root.appendChild(dataNode);
-  root.appendChild(engineNode);
+}
+
+function buildLineageQuotesSection(quotes) {
+  const body = el('div', { class: 'section-body', id: 'lineage-quotes-body' });
+  if (!quotes.length) {
+    body.appendChild(el('div', { class: 'lineage-no-results' }, 'No supporting quotes yet — run extraction or load the demo.'));
+  } else {
+    quotes.forEach((q, idx) => {
+      const verdictPill = q.verdict
+        ? el('span', { class: `pill ${q.verdict === 'pass' ? 'ok' : q.verdict === 'partial' ? 'warn' : 'fail'}` }, q.verdict)
+        : null;
+      const vBadge = q.verified
+        ? el('span', { class: 'pill ok' }, 'verified')
+        : el('span', { class: 'pill warn' }, 'unverified');
+      const card = el('div', {
+        class: 'lineage-card',
+        'data-search': `${q.path} ${q.text} page ${q.page} ${q.source}`.toLowerCase(),
+        id: `lineage-quote-${idx}`,
+      }, [
+        el('div', { class: 'card-head' }, [
+          el('span', { class: 'card-tag' }, `${q.source} · ${q.path}`),
+          el('span', { class: 'card-meta' }, `page ${q.page} · conf ${fmtNum(q.conf, 2)}`),
+          vBadge,
+          verdictPill,
+        ]),
+        el('div', { class: 'card-body' }, '“' + q.text + '”'),
+        el('div', { class: 'card-foot' }, [
+          el('button', {
+            class: 'jump-link',
+            onclick: () => showTab(q.tab),
+          }, `→ open ${q.tab} tab`),
+        ]),
+      ]);
+      body.appendChild(card);
+    });
+  }
+  return el('details', { class: 'lineage-section', open: 'open' }, [
+    el('summary', {}, [
+      el('span', { class: 'summary-title' }, 'Quotes index'),
+      el('span', { class: 'summary-meta' }, `${quotes.length} total`),
+    ]),
+    body,
+  ]);
+}
+
+function buildLineageMutationsSection(diagnosis) {
+  const body = el('div', { class: 'section-body' });
+  body.appendChild(el('div', { class: 'card-meta', style: 'margin-bottom:8px;' },
+    `Primary cause: ${diagnosis.primary_cause} · ${diagnosis.experiments_run} experiments · residual ${fmtPct(diagnosis.residual_abs_gap, 3)}`,
+  ));
+  (diagnosis.mutation_results || []).forEach((m, i) => {
+    const closed = m.pre_abs_gap - m.post_abs_gap;
+    const closedSign = closed > 0 ? 'closed' : closed < 0 ? 'widened' : 'unchanged';
+    const pill = closed > 0 ? el('span', { class: 'pill ok' }, 'closed')
+      : closed < 0 ? el('span', { class: 'pill fail' }, 'widened')
+      : el('span', { class: 'pill info' }, 'unchanged');
+    body.appendChild(el('div', { class: 'lineage-card' }, [
+      el('div', { class: 'card-head' }, [
+        el('span', { class: 'card-tag' }, `mutation[${i}] · ${m.proposal.parameter}`),
+        el('span', { class: 'card-meta' }, `${m.from_value_human || '—'} → ${m.proposal.to_value}`),
+        pill,
+      ]),
+      el('div', { class: 'card-meta' },
+        `pre_gap=${fmtPct(m.pre_abs_gap, 3)} · post_gap=${fmtPct(m.post_abs_gap, 3)} · Δ=${fmtPct(Math.abs(closed), 3)} ${closedSign}`,
+      ),
+      el('div', { class: 'card-foot' }, [
+        el('button', { class: 'jump-link', onclick: () => showTab('diagnosis') }, '→ open diagnosis tab'),
+      ]),
+    ]));
+  });
+  return el('details', { class: 'lineage-section', open: 'open' }, [
+    el('summary', {}, [
+      el('span', { class: 'summary-title' }, 'D2 mutation chain'),
+      el('span', { class: 'summary-meta' }, `${(diagnosis.mutation_results || []).length} mutations`),
+    ]),
+    body,
+  ]);
+}
+
+function filterLineageQuotes(query, total) {
+  const q = (query || '').trim().toLowerCase();
+  const cards = $$('#lineage-quotes-body .lineage-card');
+  let shown = 0;
+  cards.forEach((c) => {
+    const hay = (c.getAttribute('data-search') || '');
+    const matched = !q || hay.includes(q);
+    c.classList.toggle('hidden', !matched);
+    if (matched) shown++;
+  });
+  const stats = $('#lineage-stats');
+  if (stats) stats.textContent = q ? `${shown} / ${total} quotes match` : `${total} quote${total === 1 ? '' : 's'} indexed`;
 }
 
 // ---------- empty state ----------
@@ -2143,6 +2450,43 @@ function emptyState(icon, msg) {
     el('span', { class: 'material-symbols-outlined' }, icon),
     msg,
   ]);
+}
+
+// Diagnosis tab empty state — splits on whether D2 has a claim to chew on.
+// Without a claim, D2 is structurally pointless; with one but no diagnosis,
+// the user just hasn't run the pipeline yet (or D2 is still fetching).
+function diagnosisWaitingState(paperClaim) {
+  if (!paperClaim) {
+    return emptyState(
+      'biotech',
+      'No paper claim available. A1 did not extract a headline number from this paper, so D2 has no comparison target. Add one manually via /api/diagnose if you have one.',
+    );
+  }
+  const wrap = el('div', { class: 'diagnosis-pending' }, [
+    el('div', { class: 'spec-section' }, [
+      el('div', { class: 'spec-section-head' }, [
+        el('h3', {}, 'D2 ready · awaiting backtest'),
+        el('span', { class: 'pill info' }, 'A1 extracted a headline claim'),
+      ]),
+      el('p', { class: 'verdict-summary' }, 'D2 will run automatically after the backtest completes. Below: the paper-reported target D2 will diagnose against.'),
+    ]),
+    el('div', { class: 'spec-section' }, [
+      el('div', { class: 'spec-section-head' }, [el('h3', {}, 'Paper claim (D2 target)')]),
+      (() => {
+        const dl = el('dl', { class: 'spec-section-body' });
+        [
+          ['monthly_return (paper)', fmtPct(paperClaim.monthly_return, 3)],
+          ['t_stat (paper)', paperClaim.tstat == null ? '—' : fmtNum(paperClaim.tstat, 2)],
+          ['window', paperClaim.window || '—'],
+        ].forEach(([k, v]) => {
+          dl.appendChild(el('dt', {}, k));
+          dl.appendChild(el('dd', {}, String(v)));
+        });
+        return dl;
+      })(),
+    ]),
+  ]);
+  return wrap;
 }
 
 // ---------- boot ----------

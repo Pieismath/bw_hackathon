@@ -145,10 +145,13 @@ def extract(body: PaperIdBody):
     """Run A1 (methodology extractor) + A2 (verifier) on an uploaded PDF.
 
     Requires ANTHROPIC_API_KEY unless the bundle is already cached on disk.
-    Returns the same VerifiedReplicationSpec shape the demo bundle uses.
+    Returns the same VerifiedReplicationSpec shape the demo bundle uses, plus
+    a `paper_claim` projection of `verified.spec.headline_claim` (when A1
+    extracted one) so the frontend can fire D2 without re-reading the spec.
     """
     try:
         from src.agents.extraction import extract_and_verify
+        from app.demo_fixture import _bundle_paper_claim
 
         pdf = _load_pdf(body.paper_id)
         verified = extract_and_verify(
@@ -161,6 +164,7 @@ def extract(body: PaperIdBody):
             "paper_id": body.paper_id,
             "paper_title": verified.spec.paper_title,
             "verified_spec": verified.model_dump(mode="json"),
+            "paper_claim": _bundle_paper_claim(verified.spec.headline_claim),
             "n_pages": pdf.n_pages,
         }
     except HTTPException as he:
@@ -437,11 +441,29 @@ def robustness(body: RobustnessBody):
                 match_confidence=0.0,
             ),
         )
-        judgment = judge(scorecard, baseline, placeholder_claim)
+        # D3 LLM call. Retry once on Anthropic 529 (overload); if it still
+        # fails, return the scorecard alone so the user keeps the 90s of
+        # battery work — the deterministic part is what costs time, the LLM
+        # narrative is a wrapper.
+        from anthropic import APIStatusError
+        judgment = None
+        judgment_error = None
+        for attempt in (1, 2):
+            try:
+                judgment = judge(scorecard, baseline, placeholder_claim)
+                break
+            except APIStatusError as ae:
+                if attempt == 1 and getattr(ae, "status_code", None) in (429, 529):
+                    import time
+                    time.sleep(20)
+                    continue
+                judgment_error = f"D3 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
+                break
         src_.close()
         return _sanitize_for_json({
             "scorecard": scorecard.model_dump(mode="json"),
-            "judgment": judgment.model_dump(mode="json"),
+            "judgment": judgment.model_dump(mode="json") if judgment else None,
+            "judgment_error": judgment_error,
             "clip_note": clip_note,
             "window_info": window_info,
         })
@@ -536,15 +558,40 @@ def diagnose_endpoint(body: DiagnoseBody):
             if body.max_experiments is not None
             else MAX_EXPERIMENTS_DEFAULT
         )
-        diagnosis = diagnose(
-            spec=spec,
-            baseline_result=baseline,
-            claim=claim,
-            store=store,
-            max_experiments=max_exp,
-            transaction_cost_bps=body.transaction_cost_bps,
-        )
+        # D2 makes proposer + summarizer LLM calls; retry once on Anthropic
+        # 529. D2 itself already early-exits gracefully on intra-loop
+        # OverloadedError (sets diagnosis.early_exit=True), so the only
+        # failure mode here is the *first* LLM call hitting overload.
+        from anthropic import APIStatusError
+        diagnosis = None
+        diagnosis_error = None
+        for attempt in (1, 2):
+            try:
+                diagnosis = diagnose(
+                    spec=spec,
+                    baseline_result=baseline,
+                    claim=claim,
+                    store=store,
+                    max_experiments=max_exp,
+                    transaction_cost_bps=body.transaction_cost_bps,
+                )
+                break
+            except APIStatusError as ae:
+                if attempt == 1 and getattr(ae, "status_code", None) in (429, 529):
+                    import time
+                    time.sleep(20)
+                    continue
+                diagnosis_error = f"D2 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
+                break
         src_.close()
+        if diagnosis is None:
+            return _sanitize_for_json({
+                "diagnosis": None,
+                "n_experiments": 0,
+                "diagnosis_error": diagnosis_error,
+                "clip_note": clip_note,
+                "window_info": window_info,
+            })
         return _sanitize_for_json({
             "diagnosis": diagnosis.model_dump(mode="json"),
             "n_experiments": diagnosis.experiments_run,
