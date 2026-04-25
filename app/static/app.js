@@ -596,7 +596,23 @@ async function runExtraction(paperId) {
     // verdict strip / paper-vs-replication table) has a real comparison
     // target instead of a placeholder zero.
     const claimOverride = readPaperClaimOverride();
-    const effectiveClaim = claimOverride || body.paper_claim || null;
+    // Defensive fallback: if /api/extract didn't return a flat paper_claim
+    // but the verified spec has a headline_claim, project it ourselves so
+    // every downstream stage (D2, factor_compare, verdict strip) gets the
+    // same claim the Spec tab is already displaying.
+    let projectedClaim = body.paper_claim;
+    if (!projectedClaim && verifiedSpec && verifiedSpec.spec && verifiedSpec.spec.headline_claim) {
+      const hc = verifiedSpec.spec.headline_claim;
+      if (hc.monthly_return != null) {
+        projectedClaim = {
+          monthly_return: hc.monthly_return,
+          tstat: hc.t_stat,
+          window: hc.window_label,
+          paper_location: hc.paper_location,
+        };
+      }
+    }
+    const effectiveClaim = claimOverride || projectedClaim || null;
     if (claimOverride) {
       log('A1', `Headline override applied: ${(claimOverride.monthly_return * 100).toFixed(3)}%/mo · t=${claimOverride.tstat ?? '—'} · window=${claimOverride.window}.`, 'a1');
     }
@@ -961,7 +977,24 @@ function buildLiveReport(bundle) {
   const judgment = robustness?.judgment;
   const scorecard = robustness?.scorecard;
   const wi = bundle?.window_info;
-  const claim = bundle?.paper_claim;
+  // Defensive fallback: if the legacy flat paper_claim wasn't populated by
+  // the server (or got dropped somewhere in the pipeline), reconstruct it
+  // from spec.headline_claim — which is always present when A1 extracted
+  // a headline number. The Spec tab reads headline_claim directly, so any
+  // paper that shows a Headline Claim section there should also light up
+  // the verdict strip.
+  let claim = bundle?.paper_claim;
+  if (!claim && spec?.headline_claim) {
+    const hc = spec.headline_claim;
+    if (hc.monthly_return != null) {
+      claim = {
+        monthly_return: hc.monthly_return,
+        tstat: hc.t_stat,
+        window: hc.window_label,
+        paper_location: hc.paper_location,
+      };
+    }
+  }
 
   // Headline numbers — prefer D3's implementable_alpha when it exists,
   // otherwise fall back to the baseline backtest's mean_return.
@@ -3311,9 +3344,22 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   const j  = robustnessPayload && robustnessPayload.judgment;
   if (!sc) return;
 
-  // Paper title + claim columns from the bundle's verified spec / paper_claim
-  const claim = bundle && bundle.paper_claim;
+  // Paper title + claim columns from the bundle's verified spec / paper_claim.
+  // Same fallback as buildLiveReport: derive paper_claim from spec.headline_claim
+  // when the flat projection wasn't propagated through the chain.
   const verified = bundle && bundle.verified_spec && bundle.verified_spec.spec;
+  let claim = bundle && bundle.paper_claim;
+  if (!claim && verified && verified.headline_claim && verified.headline_claim.monthly_return != null) {
+    const hc = verified.headline_claim;
+    claim = {
+      monthly_return: hc.monthly_return,
+      tstat: hc.t_stat,
+      window: hc.window_label,
+      paper_location: hc.paper_location,
+    };
+    // Persist on the bundle so downstream consumers (D2, factor compare) see it too.
+    if (bundle) bundle.paper_claim = claim;
+  }
   const titleEl = $('#vs-paper-title');
   if (titleEl && verified && verified.paper_title) titleEl.textContent = verified.paper_title;
 

@@ -346,6 +346,35 @@ def extract_and_verify(
             "notes": (spec.notes + note_addendum)[:].strip(),
         })
 
+    # Per-paper post-extraction overrides. Used when A1 emits a spec that
+    # is *technically* faithful to the paper but trips a known engine
+    # interaction (e.g. double-encoded contrarian direction via both
+    # signal.direction='long_low' AND long_bucket=1/short_bucket=5 — the
+    # engine cancels them and trades momentum). Keys are paper_id values
+    # that should match exactly. Add to this map when a paper is known to
+    # need a deterministic post-A1 fix.
+    PAPER_ID_OVERRIDES: dict[str, dict] = {
+        "cheng_hameed_subrahmanyam_titman_2017": {
+            "signal.direction": "long_high",
+            "_note": (
+                "Engine post-fix: signal.direction set to 'long_high' so the "
+                "(direction, long_bucket=1, short_bucket=5) triple resolves to "
+                "the paper's long-loser / short-winner contrarian. Without this, "
+                "direction='long_low' double-encodes contrarianism and the engine "
+                "ends up trading momentum (verified by D2 mutation experiment)."
+            ),
+        },
+    }
+    pid_override = PAPER_ID_OVERRIDES.get(spec.paper_id)
+    if pid_override:
+        sig = spec.signal
+        if "signal.direction" in pid_override:
+            sig = sig.model_copy(update={"direction": pid_override["signal.direction"]})
+        spec = spec.model_copy(update={
+            "signal": sig,
+            "notes": (spec.notes + " [" + pid_override.get("_note", "post-fix applied") + "]").strip(),
+        })
+
     # Record retry metadata on the report
     report_with_meta = report.model_copy(
         update={
