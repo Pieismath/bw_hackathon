@@ -2964,6 +2964,25 @@ function renderDiagnosis(payload, paperClaim) {
     root.appendChild(diagnosisWaitingState(paperClaim));
     return;
   }
+  // Detect placeholder-claim diagnoses (Poterba-Summers, Lo-MacKinlay, AQR
+  // streaks — papers that don't make a tradeable headline claim). The
+  // diagnosis output reads incoherently because D2 ran against a fabricated
+  // 0.0%/mo target and "gap closure" is mathematically meaningless. Render
+  // a clean explainer instead of the confused experiment log.
+  const placeholderClaim =
+    !paperClaim ||
+    paperClaim.monthly_return == null ||
+    (paperClaim.monthly_return === 0 && (paperClaim.tstat == null || paperClaim.tstat === 0));
+  // Heuristic: if D2 early-exited with zero useful experiments, the
+  // diagnosis is also untrustworthy. Combined with placeholder claim →
+  // render the not-applicable state.
+  const noUsefulExperiments =
+    diagnosis.early_exit &&
+    (!diagnosis.mutation_results || diagnosis.mutation_results.every((m) => m.gap_delta === 0));
+  if (placeholderClaim && noUsefulExperiments) {
+    root.appendChild(diagnosisNotApplicableState(paperClaim));
+    return;
+  }
 
   // Primary cause banner
   const causeClass = diagnosis.confidence === 'high' ? 'ok' : diagnosis.confidence === 'medium' ? 'warn' : 'fail';
@@ -3560,6 +3579,29 @@ function emptyState(icon, msg) {
 }
 
 // Diagnosis tab empty state — splits on whether D2 has a claim to chew on.
+// Specification-test papers (Lo-MacKinlay 1988, Poterba-Summers 1988) and
+// Sharpe-claim papers (AQR streaks) don't make a tradeable monthly L/S
+// claim. D2 runs against a fabricated 0.0%/mo placeholder and produces
+// incoherent output (every mutation has gap_delta=0). Render a clean
+// "not applicable" state instead of the experiment log.
+function diagnosisNotApplicableState(paperClaim) {
+  const wrap = el('div', { class: 'diagnosis-pending' });
+  const card = el('div', { class: 'flag-banner sev-info' });
+  card.appendChild(el('div', { class: 'head' }, 'Diagnosis not applicable for this paper'));
+  card.appendChild(el('div', { class: 'banner-headline' },
+    'Divergence diagnosis compares the engine\'s replication against the paper\'s headline long-short return. ' +
+    'This paper does not report one — it is a statistical-test or factor-tilt paper whose result is reported as ' +
+    'a variance ratio, p-value, or Sharpe-ratio tercile spread, not a monthly L/S return. There is nothing for ' +
+    'D2 to "close the gap" against.'
+  ));
+  card.appendChild(el('div', { class: 'banner-foot' },
+    'Other tabs (Replication, Stress Tests, Ken French factor comparison) still produce meaningful results. ' +
+    'The verdict strip\'s "NO PAPER TARGET" tag explains the same idea at a glance.'
+  ));
+  wrap.appendChild(card);
+  return wrap;
+}
+
 // Without a claim, D2 is structurally pointless; with one but no diagnosis,
 // the user just hasn't run the pipeline yet (or D2 is still fetching).
 function diagnosisWaitingState(paperClaim) {
