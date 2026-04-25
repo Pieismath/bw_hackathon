@@ -877,17 +877,21 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
                 clipped, store,
                 families=("costs", "liquidity", "capacity", "data_quality"),
             )
+            # Stash the scorecard immediately so the SPA's Robustness tab
+            # renders even if D3's LLM judgment fails (usage cap, 529s, etc.).
+            bundle["robustness"] = {
+                "scorecard": scorecard.model_dump(mode="json"),
+                "judgment": None,
+            }
             _set_stage(job_id, "battery", "done")
+            _set_partial(job_id, bundle)
 
             _set_stage(job_id, "d3", "active")
             judgment = judge(
                 scorecard=scorecard, baseline=baseline, claim=placeholder_claim,
                 use_cache=True,
             )
-            bundle["robustness"] = {
-                "scorecard": scorecard.model_dump(mode="json"),
-                "judgment": judgment.model_dump(mode="json"),
-            }
+            bundle["robustness"]["judgment"] = judgment.model_dump(mode="json")
             _set_stage(job_id, "d3", "done")
             _set_partial(job_id, bundle)
         finally:
