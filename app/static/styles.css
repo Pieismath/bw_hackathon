@@ -168,16 +168,11 @@ h1, h2, h3, h4, .serif {
   position: relative;
 }
 
-/* Floating status pill replaces the sidenav-foot status indicator. */
+/* Floating status pill — hidden in the briefing terminal aesthetic; the
+ * activity tape on the Overview tab carries the same signal without
+ * cluttering the top-right corner. */
 .status-pill-floating {
-  position: absolute;
-  top: 10px;
-  right: 16px;
-  z-index: 5;
-  pointer-events: none;
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  display: none !important;
 }
 
 /* ---------- Canvas ---------- */
@@ -371,6 +366,16 @@ h1, h2, h3, h4, .serif {
 @keyframes dz-confirm-in {
   from { opacity: 0; transform: scale(0.97); }
   to   { opacity: 1; transform: scale(1); }
+}
+/* When the JS adds .fading-out, swap the entrance animation for an
+ * exit animation. `forwards` keeps the final opacity:0 state through
+ * the brief gap before the JS sets hidden=true. */
+.dropzone-confirm.fading-out {
+  animation: dz-confirm-out 0.6s ease-in forwards;
+}
+@keyframes dz-confirm-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.99); }
 }
 .dz-check {
   font-size: 38px !important;

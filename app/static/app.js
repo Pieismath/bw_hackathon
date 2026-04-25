@@ -538,6 +538,29 @@ function setVerdict(report) {
   el.style.color = conf === 'high' ? 'var(--success)' : conf === 'medium' ? 'var(--warning)' : 'var(--danger)';
 }
 
+// Reset the CIO Summary strip to its dash-placeholder state. The strip
+// itself stays visible (it's the user's primary verdict surface — hiding
+// it on reset / fresh load loses the navigation reference). Only the
+// value cells get blanked back to dashes.
+function resetVerdictStrip() {
+  const strip = $('#verdict-strip');
+  if (strip) strip.hidden = false;
+  const blanks = [
+    'vs-paper-title', 'vs-claim-value', 'vs-claim-tstat', 'vs-claim-loc',
+    'vs-impl-value', 'vs-impl-tstat', 'vs-tag',
+    'vs-paper-window', 'vs-engine-window', 'vs-gap-attr',
+  ];
+  blanks.forEach((id) => { const n = document.getElementById(id); if (n) n.textContent = '—'; });
+  // Summary block is always blank on reset — :empty CSS rule hides the
+  // block entirely until a bundle populates it.
+  const summary = document.getElementById('vs-summary');
+  if (summary) summary.textContent = '';
+  const conf = $('#vs-confidence'); if (conf) conf.textContent = 'confidence: —';
+  const verdictCol = $('#vs-col-verdict'); if (verdictCol) verdictCol.removeAttribute('data-tag');
+  const pop = $('#vs-why-popover'); if (pop) { pop.hidden = true; pop.textContent = ''; }
+  const dbt = $('#vs-dbt-toggle'); if (dbt) dbt.hidden = true;
+}
+
 $('#demo-btn').addEventListener('click', async () => {
   log('SYS', 'Loading demo bundle from /api/demo…', 'sys');
   setStatus('Loading demo bundle…', 'amber');
@@ -572,6 +595,9 @@ $('#reset-btn').addEventListener('click', () => {
   $('#log').innerHTML = '';
   setStatus('Idle — no paper loaded', 'gray');
   setVerdict(null);
+  resetVerdictStrip();
+  const stepper = $('#pipeline-stepper'); if (stepper) stepper.hidden = true;
+  const dbtPanel = $('#dbt-panel'); if (dbtPanel) dbtPanel.hidden = true;
   refreshOverrideChip();
   refreshRunButton();
   showTab('overview');
@@ -622,10 +648,18 @@ function showUploadConfirmation(filename, sizeKB) {
   dz.classList.remove('confirmed');
   void dz.offsetWidth; // force reflow so the animation restarts
   dz.classList.add('confirmed');
+  // Hold the confirmation visible briefly, then fade out smoothly. The
+  // .fading-out class drives a CSS opacity animation (~0.6s); after it
+  // finishes, hide the overlay and clear all transient classes so the
+  // dropzone returns to its idle state.
   setTimeout(() => {
-    dz.classList.remove('confirmed');
-    overlay.hidden = true;
-  }, 2200);
+    overlay.classList.add('fading-out');
+    setTimeout(() => {
+      overlay.hidden = true;
+      overlay.classList.remove('fading-out');
+      dz.classList.remove('confirmed');
+    }, 600);
+  }, 1700);
 }
 
 async function uploadPaper(file) {
@@ -3506,9 +3540,11 @@ function renderVerdictStrip(report) {
   $('#vs-engine-window').textContent = ' ' + (h.engine_window || h.sample_engine || '—');
   $('#vs-gap-attr').textContent = ' ' + ((v.gap_attribution || '—').replace(/_/g, ' '));
 
-  // Summary line — held off-screen by default; revealed via the "Why?"
-  // popover below the verdict tag (see setupVerdictWhy).
-  $('#vs-summary').textContent = v.summary_first_clause || '';
+  // Strip stays clean — the verdict tag + numbers above already say
+  // enough. The verbose D3 prose ("Implementable alpha is roughly
+  // 0.96%/mo (t≈1.84) under 10 bps round-trip costs…") was crowding the
+  // top bar, so it now lives ONLY in the Rationale popover.
+  $('#vs-summary').textContent = '';
   const popover = $('#vs-why-popover');
   if (popover) popover.textContent = v.summary_first_clause || '';
 
