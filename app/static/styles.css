@@ -1525,67 +1525,9 @@ td.muted, .muted {
 .vs-summary:empty { display: none; }
 
 /* ============================================================
-   Sweep charts (lag + costs interactive crosshair)
+   Decay-card crosshair tooltip (lag + costs hover)
    ============================================================ */
-.sweep-charts-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.sweep-chart {
-  position: relative;
-  background: var(--panel);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  padding: 12px 14px 6px;
-}
-.sweep-chart-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
-  margin-bottom: 4px;
-}
-.sweep-svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  cursor: crosshair;
-}
-.sweep-axis { stroke: var(--border); stroke-width: 1; }
-.sweep-zero { stroke: #414755; stroke-dasharray: 2 3; stroke-width: 1; }
-.sweep-tick {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  fill: var(--text-subtle);
-}
-.sweep-axis-label {
-  font-size: 10.5px;
-  fill: var(--text-muted);
-  letter-spacing: 0.02em;
-}
-.sweep-line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.5;
-}
-.sweep-point.surv { fill: var(--success); stroke: var(--success); }
-.sweep-point.fail { fill: var(--danger); stroke: var(--danger); }
-.sweep-crosshair {
-  stroke: var(--text-muted);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-  pointer-events: none;
-}
-.sweep-focus {
-  fill: var(--accent);
-  stroke: #fff;
-  stroke-width: 1.5;
-  pointer-events: none;
-}
-.sweep-crosshair.hidden, .sweep-focus.hidden { visibility: hidden; }
-.sweep-tip {
+.decay-tip {
   position: absolute;
   background: rgba(15, 18, 23, 0.96);
   border: 1px solid var(--border);
@@ -1597,16 +1539,16 @@ td.muted, .muted {
   min-width: 120px;
   z-index: 5;
 }
-.sweep-tip.hidden { display: none; }
-.sweep-tip-row {
+.decay-tip.hidden { display: none; }
+.decay-tip-row {
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
-.sweep-tip-key { color: var(--text-muted); }
-.sweep-tip-val { color: var(--text); }
-.sweep-tip-val.pos { color: var(--success); }
-.sweep-tip-val.neg { color: var(--danger); }
+.decay-tip-key { color: var(--text-muted); }
+.decay-tip-val { color: var(--text); }
+.decay-tip-val.pos { color: var(--success); }
+.decay-tip-val.neg { color: var(--danger); }
 
 /* ============================================================
    Phase 5 — DBT side panel

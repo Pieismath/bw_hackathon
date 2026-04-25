@@ -1854,6 +1854,7 @@ function renderRobustness(robustness) {
         points: lagTests.map((t) => ({
           x: t.parameter_swept?.signal_lag_days ?? 0,
           y: t.headline_metric,
+          tstat: t.headline_tstat,
           surviving: t.surviving,
           name: t.name,
         })),
@@ -1868,6 +1869,7 @@ function renderRobustness(robustness) {
         points: costTests.map((t) => ({
           x: t.parameter_swept?.transaction_cost_bps ?? 0,
           y: t.headline_metric,
+          tstat: t.headline_tstat,
           surviving: t.surviving,
           name: t.name,
         })),
@@ -1875,37 +1877,6 @@ function renderRobustness(robustness) {
     }
     decayBlock.appendChild(grid);
     root.appendChild(decayBlock);
-  }
-
-  // Render lag + costs families side by side with interactive crosshair charts.
-  const sweepFams = ['lag', 'costs'];
-  const sweepTests = sweepFams
-    .map((f) => [f, grouped.get(f) || []])
-    .filter(([, t]) => t.length >= 2);
-  if (sweepTests.length) {
-    const row = el('div', { class: 'sweep-charts-row' });
-    sweepTests.forEach(([fam, tests]) => {
-      const xKey = fam === 'lag' ? 'signal_lag_days' : 'transaction_cost_bps';
-      const xLabel = fam === 'lag' ? 'lag (business days)' : 'cost (bps)';
-      const points = tests
-        .map((t) => ({
-          x: typeof t.parameter_swept[xKey] === 'number' ? t.parameter_swept[xKey] : Number(t.parameter_swept[xKey]),
-          y: t.headline_metric,
-          tstat: t.headline_tstat,
-          surviving: t.surviving,
-          name: t.name,
-        }))
-        .filter((p) => Number.isFinite(p.x))
-        .sort((a, b) => a.x - b.x);
-      if (points.length < 2) return;
-      const chart = buildSweepChart(points, {
-        title: FAMILY_LABEL[fam] || capitalize(fam),
-        xLabel,
-        yLabel: 'mean return / mo',
-      });
-      row.appendChild(chart);
-    });
-    if (row.children.length) root.appendChild(row);
   }
 
   grouped.forEach((tests, fam) => {
@@ -1949,157 +1920,6 @@ function renderRobustness(robustness) {
     block.appendChild(t);
     root.appendChild(block);
   });
-}
-
-// ---------- Interactive sweep chart with hover crosshair ----------
-// Used by the cost-sweep and lag-sweep families on the Robustness tab.
-// Renders an SVG line+points chart with: vertical/horizontal crosshair lines
-// snapping to the nearest data point on mousemove, plus an info pill showing
-// the exact x and y values at the hovered point.
-function buildSweepChart(points, opts) {
-  const { title, xLabel, yLabel } = opts;
-  const W = 360, H = 200;
-  const padL = 48, padR = 14, padT = 28, padB = 36;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
-  const yLo = Math.min(...ys, 0);
-  const yHi = Math.max(...ys, 0);
-  const yPad = (yHi - yLo) * 0.12 || 0.001;
-  const yMin = yLo - yPad;
-  const yMax = yHi + yPad;
-  const xToPx = (x) => padL + ((x - xMin) / Math.max(xMax - xMin, 1e-9)) * innerW;
-  const yToPx = (y) => padT + (1 - (y - yMin) / Math.max(yMax - yMin, 1e-9)) * innerH;
-
-  const wrap = el('div', { class: 'sweep-chart' });
-  wrap.appendChild(el('div', { class: 'sweep-chart-title' }, title));
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'sweep-svg' });
-  wrap.appendChild(svg);
-  const tip = el('div', { class: 'sweep-tip hidden' });
-  wrap.appendChild(tip);
-
-  // Axes baselines
-  svg.appendChild(svgEl('line', {
-    x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, class: 'sweep-axis',
-  }));
-  svg.appendChild(svgEl('line', {
-    x1: padL, x2: padL, y1: padT, y2: H - padB, class: 'sweep-axis',
-  }));
-
-  // Zero line if zero is in y range
-  if (yMin <= 0 && yMax >= 0) {
-    svg.appendChild(svgEl('line', {
-      x1: padL, x2: W - padR, y1: yToPx(0), y2: yToPx(0), class: 'sweep-zero',
-    }));
-  }
-
-  // Y-axis ticks (3 ticks: min, mid, max)
-  [yMin, (yMin + yMax) / 2, yMax].forEach((yv) => {
-    const yp = yToPx(yv);
-    const t = svgEl('text', { x: padL - 6, y: yp + 3, class: 'sweep-tick', 'text-anchor': 'end' });
-    t.textContent = (yv * 100).toFixed(2) + '%';
-    svg.appendChild(t);
-  });
-  // X-axis ticks: every data point's x
-  xs.forEach((xv) => {
-    const xp = xToPx(xv);
-    const t = svgEl('text', { x: xp, y: H - padB + 14, class: 'sweep-tick', 'text-anchor': 'middle' });
-    t.textContent = String(xv);
-    svg.appendChild(t);
-  });
-
-  // Axis labels
-  const xl = svgEl('text', { x: padL + innerW / 2, y: H - 4, class: 'sweep-axis-label', 'text-anchor': 'middle' });
-  xl.textContent = xLabel;
-  svg.appendChild(xl);
-  const yl = svgEl('text', {
-    x: 12, y: padT + innerH / 2, class: 'sweep-axis-label', 'text-anchor': 'middle',
-    transform: `rotate(-90 12 ${padT + innerH / 2})`,
-  });
-  yl.textContent = yLabel;
-  svg.appendChild(yl);
-
-  // Line path
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(p.x)},${yToPx(p.y)}`).join(' ');
-  svg.appendChild(svgEl('path', { d, class: 'sweep-line' }));
-
-  // Points
-  points.forEach((p) => {
-    const c = svgEl('circle', {
-      cx: xToPx(p.x), cy: yToPx(p.y), r: 3.5,
-      class: 'sweep-point ' + (p.surviving ? 'surv' : 'fail'),
-    });
-    svg.appendChild(c);
-  });
-
-  // Crosshair (hidden until hover)
-  const vLine = svgEl('line', { y1: padT, y2: H - padB, class: 'sweep-crosshair hidden' });
-  const hLine = svgEl('line', { x1: padL, x2: W - padR, class: 'sweep-crosshair hidden' });
-  const focus = svgEl('circle', { r: 5, class: 'sweep-focus hidden' });
-  svg.appendChild(vLine);
-  svg.appendChild(hLine);
-  svg.appendChild(focus);
-
-  function nearest(px) {
-    let best = points[0], bestDx = Infinity;
-    points.forEach((p) => {
-      const dx = Math.abs(xToPx(p.x) - px);
-      if (dx < bestDx) { best = p; bestDx = dx; }
-    });
-    return best;
-  }
-  function hide() {
-    vLine.classList.add('hidden');
-    hLine.classList.add('hidden');
-    focus.classList.add('hidden');
-    tip.classList.add('hidden');
-  }
-
-  svg.addEventListener('mousemove', (ev) => {
-    const rect = svg.getBoundingClientRect();
-    const localX = ((ev.clientX - rect.left) / rect.width) * W;
-    if (localX < padL || localX > W - padR) { hide(); return; }
-    const p = nearest(localX);
-    const px = xToPx(p.x);
-    const py = yToPx(p.y);
-    vLine.setAttribute('x1', px); vLine.setAttribute('x2', px);
-    hLine.setAttribute('y1', py); hLine.setAttribute('y2', py);
-    focus.setAttribute('cx', px); focus.setAttribute('cy', py);
-    vLine.classList.remove('hidden');
-    hLine.classList.remove('hidden');
-    focus.classList.remove('hidden');
-    tip.innerHTML = '';
-    tip.appendChild(el('div', { class: 'sweep-tip-row' }, [
-      el('span', { class: 'sweep-tip-key' }, xLabel.split(' ')[0] + ':'),
-      el('span', { class: 'sweep-tip-val mono' }, String(p.x)),
-    ]));
-    tip.appendChild(el('div', { class: 'sweep-tip-row' }, [
-      el('span', { class: 'sweep-tip-key' }, 'return:'),
-      el('span', { class: 'sweep-tip-val mono ' + (p.y >= 0 ? 'pos' : 'neg') }, fmtPct(p.y, 3)),
-    ]));
-    tip.appendChild(el('div', { class: 'sweep-tip-row' }, [
-      el('span', { class: 'sweep-tip-key' }, 't-stat:'),
-      el('span', { class: 'sweep-tip-val mono' }, p.tstat == null ? '—' : fmtNum(p.tstat, 2)),
-    ]));
-    tip.appendChild(el('div', { class: 'sweep-tip-row' }, [
-      el('span', { class: 'sweep-tip-key' }, 'survives:'),
-      el('span', { class: 'sweep-tip-val mono ' + (p.surviving ? 'pos' : 'neg') }, p.surviving ? 'yes' : 'no'),
-    ]));
-    // Tooltip position relative to chart wrap
-    const wrapRect = wrap.getBoundingClientRect();
-    const tipX = (px / W) * wrapRect.width;
-    const tipY = (py / H) * wrapRect.height;
-    const wrapW = wrapRect.width;
-    const offsetX = tipX > wrapW / 2 ? -135 : 12;
-    tip.style.left = `${Math.max(4, Math.min(wrapW - 130, tipX + offsetX))}px`;
-    tip.style.top = `${Math.max(4, tipY - 10)}px`;
-    tip.classList.remove('hidden');
-  });
-  svg.addEventListener('mouseleave', hide);
-  return wrap;
 }
 
 function kpi(label, value, extraClass = '') {
@@ -2147,6 +1967,7 @@ function fmtUSD(x) {
 // and an optional vertical marker for half-life / cost-threshold.
 function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
   const card = el('div', { class: 'decay-card' });
+  card.style.position = 'relative';
   card.appendChild(el('div', { class: 'decay-head' }, [
     el('span', { class: 'decay-title' }, title),
     el('span', { class: 'decay-x' }, xLabel),
@@ -2269,6 +2090,82 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     t.textContent = String(p.x);
     s.appendChild(t);
   });
+
+  // Hover crosshair: vertical + horizontal dashed lines snapping to the
+  // nearest data point's x, plus a tooltip pill showing exact x / y / t-stat.
+  const vLine = svgEl('line', {
+    y1: padT, y2: H - padB,
+    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    visibility: 'hidden', 'pointer-events': 'none',
+  });
+  const hLine = svgEl('line', {
+    x1: padL, x2: W - padR,
+    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    visibility: 'hidden', 'pointer-events': 'none',
+  });
+  const focus = svgEl('circle', {
+    r: '5', fill: '#5b9dff', stroke: '#fff', 'stroke-width': '1.5',
+    visibility: 'hidden', 'pointer-events': 'none',
+  });
+  s.appendChild(vLine); s.appendChild(hLine); s.appendChild(focus);
+  s.style.cursor = 'crosshair';
+
+  const tip = el('div', { class: 'decay-tip hidden' });
+  card.appendChild(tip);
+  function nearest(localX) {
+    let best = sortedPts[0], bestDx = Infinity;
+    sortedPts.forEach((p) => {
+      const dx = Math.abs(x(p.x) - localX);
+      if (dx < bestDx) { best = p; bestDx = dx; }
+    });
+    return best;
+  }
+  function hideHover() {
+    vLine.setAttribute('visibility', 'hidden');
+    hLine.setAttribute('visibility', 'hidden');
+    focus.setAttribute('visibility', 'hidden');
+    tip.classList.add('hidden');
+  }
+  s.addEventListener('mousemove', (ev) => {
+    const rect = s.getBoundingClientRect();
+    const localX = ((ev.clientX - rect.left) / rect.width) * W;
+    if (localX < padL || localX > W - padR) { hideHover(); return; }
+    const p = nearest(localX);
+    const px = x(p.x), py = y(p.y);
+    vLine.setAttribute('x1', px); vLine.setAttribute('x2', px);
+    hLine.setAttribute('y1', py); hLine.setAttribute('y2', py);
+    focus.setAttribute('cx', px); focus.setAttribute('cy', py);
+    vLine.setAttribute('visibility', 'visible');
+    hLine.setAttribute('visibility', 'visible');
+    focus.setAttribute('visibility', 'visible');
+    tip.innerHTML = '';
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, `${xLabel}:`),
+      el('span', { class: 'decay-tip-val mono' }, String(p.x)),
+    ]));
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, 'return:'),
+      el('span', { class: 'decay-tip-val mono ' + (p.y >= 0 ? 'pos' : 'neg') }, fmtPct(p.y, 3)),
+    ]));
+    if (p.tstat != null) {
+      tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+        el('span', { class: 'decay-tip-key' }, 't-stat:'),
+        el('span', { class: 'decay-tip-val mono' }, fmtNum(p.tstat, 2)),
+      ]));
+    }
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, 'survives:'),
+      el('span', { class: 'decay-tip-val mono ' + (p.surviving ? 'pos' : 'neg') }, p.surviving ? 'yes' : 'no'),
+    ]));
+    const wrapRect = card.getBoundingClientRect();
+    const tipX = (px / W) * wrapRect.width;
+    const tipY = (py / H) * wrapRect.height;
+    const offsetX = tipX > wrapRect.width / 2 ? -130 : 14;
+    tip.style.left = `${Math.max(4, Math.min(wrapRect.width - 130, tipX + offsetX))}px`;
+    tip.style.top = `${Math.max(4, tipY - 10)}px`;
+    tip.classList.remove('hidden');
+  });
+  s.addEventListener('mouseleave', hideHover);
 
   card.appendChild(s);
   return card;
