@@ -20,6 +20,7 @@ from src.specs.methodology import (
 from src.specs.results import (
     ReturnObservation,
     SubperiodSummary,
+    FormationDecayPoint,
     BacktestResult,
     AmbiguityDiagnostic,
     ReplicationResult,
@@ -79,6 +80,7 @@ __all__ = [
     "ReplicationSpec",
     "ReturnObservation",
     "SubperiodSummary",
+    "FormationDecayPoint",
     "BacktestResult",
     "AmbiguityDiagnostic",
     "ReplicationResult",

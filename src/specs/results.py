@@ -71,6 +71,27 @@ class SubperiodSummary(BaseModel):
     max_drawdown: float
 
 
+class FormationDecayPoint(BaseModel):
+    """Average per-tranche return at a given age-since-formation.
+
+    For a K-month holding strategy, a tranche formed at month M contributes
+    to measurement months {M+1, ..., M+K}. `age_months=1` is the first
+    holding month after formation; `age_months=K` is the last. This decay
+    curve — mean tranche return grouped by age across the full sample —
+    answers the trader's "how long is the signal alive?" question directly.
+
+    Numbers are gross (no transaction-cost amortization) because the cost
+    is a constant shift across ages and obscures the signal shape.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    age_months: int = Field(ge=1)
+    mean_ret: float
+    std_error: float = Field(ge=0.0)
+    n_observations: int = Field(ge=0)
+
+
 class BacktestResult(BaseModel):
     """Engine output for a single ReplicationSpec run.
 
@@ -103,6 +124,10 @@ class BacktestResult(BaseModel):
     return_convention: ReturnConvention = "arithmetic_monthly"
     newey_west_lag: int = Field(default=0, ge=0)
     subperiod_summaries: tuple[SubperiodSummary, ...] = ()
+    # Mean per-tranche return by months-since-formation; empty when the
+    # engine didn't produce any overlapping-tranche data. Entries are
+    # ordered by ascending age_months.
+    decay_by_age: tuple[FormationDecayPoint, ...] = ()
     warnings: tuple[str, ...] = ()
     data_quality_flags: tuple[str, ...] = ()
     provenance: ProvenanceRecord

@@ -396,3 +396,28 @@ def test_engine_costs_reduce_mean_return(store):
     delta = gross.mean_return - netted.mean_return
     assert delta == pytest.approx(expected_drop, abs=1e-9)
     assert netted.transaction_cost_bps == 25.0
+
+
+@pytest.mark.slow
+def test_engine_decay_by_age_shape(store):
+    """Post-formation decay curve has one point per age 1..K, each aggregated
+    across many tranche-months. Smoke-test the shape; the shape is the
+    feature — the numbers are what traders stare at."""
+    spec = _jt_like_spec(date(2012, 1, 1), date(2019, 12, 31))
+    r = run_backtest(spec, store, transaction_cost_bps=0.0)
+    K = spec.rebalance.holding_period_months
+    assert K == 6
+    assert len(r.decay_by_age) == K
+    ages = [p.age_months for p in r.decay_by_age]
+    assert ages == list(range(1, K + 1))  # contiguous 1..K
+    for p in r.decay_by_age:
+        assert p.n_observations > 0
+        assert math.isfinite(p.mean_ret)
+        assert p.std_error >= 0.0
+    # Costs don't change the decay SHAPE — the chart is gross-of-cost so the
+    # two runs must produce identical decay arrays.
+    netted = run_backtest(spec, store, transaction_cost_bps=25.0)
+    for a, b in zip(r.decay_by_age, netted.decay_by_age):
+        assert a.age_months == b.age_months
+        assert a.mean_ret == pytest.approx(b.mean_ret)
+        assert a.n_observations == b.n_observations

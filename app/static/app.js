@@ -1202,6 +1202,21 @@ function renderBacktest(bt, paperClaim) {
   m.appendChild(dl);
   root.appendChild(m);
 
+  // Post-formation decay — gross per-tranche return grouped by months since
+  // formation. The shape (monotone decay vs mid-life peak vs reversal)
+  // answers the trader's "how long is the signal alive?" question directly.
+  if (bt.decay_by_age && bt.decay_by_age.length) {
+    const decay = el('div', { class: 'spec-section' });
+    decay.appendChild(el('div', { class: 'spec-section-head' }, [
+      el('h3', {}, 'Signal decay by formation age'),
+      el('span', { class: 'pill info' }, 'per-tranche · gross of cost'),
+    ]));
+    decay.appendChild(buildDecayByAgeChart(bt.decay_by_age));
+    // Narrative explainer — traders want the takeaway, not just the bars.
+    decay.appendChild(buildDecayNarrative(bt.decay_by_age));
+    root.appendChild(decay);
+  }
+
   // Equity curve — interactive (brush-to-zoom + hover tooltip + drawdown panel)
   const chart = el('div', { class: 'spec-section' });
   chart.appendChild(el('div', { class: 'spec-section-head' }, [
@@ -1243,6 +1258,164 @@ function renderBacktest(bt, paperClaim) {
     tbl.appendChild(t);
     root.appendChild(tbl);
   }
+}
+
+// ---------- Post-formation decay chart ----------
+//
+// Bars show mean per-tranche return at each age (months since formation),
+// with ±1 standard-error whiskers. Positive bars up (green), negative down
+// (red). A horizontal zero-line anchors the eye. The point of the chart is
+// the SHAPE — traders read it as "signal peaks at month X, fades by month Y".
+
+function buildDecayByAgeChart(points) {
+  const w = 640, h = 180;
+  const padL = 44, padR = 14, padT = 12, padB = 28;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const wrap = el('div', { class: 'chart-wrap' });
+
+  const ages = points.map((p) => p.age_months);
+  const means = points.map((p) => p.mean_ret);
+  const ses = points.map((p) => p.std_error);
+  const yMaxRaw = Math.max(0, ...means.map((m, i) => m + ses[i]));
+  const yMinRaw = Math.min(0, ...means.map((m, i) => m - ses[i]));
+  const yPad = Math.max((yMaxRaw - yMinRaw) * 0.1, 1e-4);
+  const yMax = yMaxRaw + yPad;
+  const yMin = yMinRaw - yPad;
+  const yToPx = (y) => padT + innerH * (1 - (y - yMin) / (yMax - yMin));
+
+  const n = points.length;
+  const slot = innerW / n;
+  const barW = Math.min(slot * 0.55, 48);
+  const xToPx = (i) => padL + slot * (i + 0.5) - barW / 2;
+  const cxToPx = (i) => padL + slot * (i + 0.5);
+
+  const s = svgEl('svg', {
+    xmlns: SVG_NS,
+    viewBox: `0 0 ${w} ${h}`,
+    width: '100%',
+    preserveAspectRatio: 'none',
+    class: 'decay-chart',
+  });
+
+  // Zero line
+  const y0 = yToPx(0);
+  s.appendChild(svgEl('line', {
+    x1: padL, x2: padL + innerW, y1: y0, y2: y0,
+    stroke: '#3a4354', 'stroke-width': '1', 'stroke-dasharray': '3,3',
+  }));
+
+  // Y-axis ticks (zero, min, max)
+  [yMin + yPad, 0, yMax - yPad].forEach((val, i) => {
+    const yy = yToPx(val);
+    s.appendChild(svgEl('line', {
+      x1: padL - 4, x2: padL, y1: yy, y2: yy, stroke: '#2a3240', 'stroke-width': '1',
+    }));
+    const lbl = svgEl('text', {
+      x: padL - 6, y: yy + 3,
+      fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
+      'text-anchor': 'end',
+    });
+    lbl.textContent = (val * 100).toFixed(2) + '%';
+    s.appendChild(lbl);
+  });
+
+  // Bars + error whiskers + x labels + tooltips
+  points.forEach((p, i) => {
+    const cx = cxToPx(i);
+    const x = xToPx(i);
+    const yVal = yToPx(p.mean_ret);
+    const barTop = p.mean_ret >= 0 ? yVal : y0;
+    const barHeight = Math.abs(yVal - y0);
+    const color = p.mean_ret >= 0 ? 'rgba(87, 199, 133, 0.7)' : 'rgba(224, 108, 117, 0.7)';
+    const stroke = p.mean_ret >= 0 ? '#57c785' : '#e06c75';
+
+    const bar = svgEl('rect', {
+      x, y: barTop, width: barW, height: Math.max(barHeight, 1),
+      fill: color, stroke, 'stroke-width': '1',
+    });
+    const tip = svgEl('title');
+    tip.textContent = `Month ${p.age_months} after formation · mean ${(p.mean_ret * 100).toFixed(3)}%  (±${(p.std_error * 100).toFixed(3)}%) · n=${p.n_observations}`;
+    bar.appendChild(tip);
+    s.appendChild(bar);
+
+    // Error whiskers
+    if (p.std_error > 0) {
+      const yHi = yToPx(p.mean_ret + p.std_error);
+      const yLo = yToPx(p.mean_ret - p.std_error);
+      s.appendChild(svgEl('line', {
+        x1: cx, x2: cx, y1: yHi, y2: yLo,
+        stroke: '#cbd1dc', 'stroke-width': '1',
+      }));
+      [yHi, yLo].forEach((yy) => {
+        s.appendChild(svgEl('line', {
+          x1: cx - 4, x2: cx + 4, y1: yy, y2: yy,
+          stroke: '#cbd1dc', 'stroke-width': '1',
+        }));
+      });
+    }
+
+    // X label (month number)
+    const xl = svgEl('text', {
+      x: cx, y: h - padB + 14,
+      fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
+      'text-anchor': 'middle',
+    });
+    xl.textContent = String(p.age_months);
+    s.appendChild(xl);
+
+    // Value label above bar
+    const vl = svgEl('text', {
+      x: cx, y: (p.mean_ret >= 0 ? yVal - 4 : yVal + 12),
+      fill: '#cbd1dc', 'font-family': 'JetBrains Mono', 'font-size': '9.5',
+      'text-anchor': 'middle',
+    });
+    vl.textContent = (p.mean_ret * 100).toFixed(2) + '%';
+    s.appendChild(vl);
+  });
+
+  // X-axis caption
+  const xcap = svgEl('text', {
+    x: padL + innerW / 2, y: h - 2,
+    fill: '#6b7280', 'font-family': 'JetBrains Mono', 'font-size': '10',
+    'text-anchor': 'middle',
+  });
+  xcap.textContent = 'months since formation';
+  s.appendChild(xcap);
+
+  wrap.appendChild(s);
+  return wrap;
+}
+
+// Short interpretive line — point traders at the shape, not just bars.
+function buildDecayNarrative(points) {
+  if (!points.length) return document.createDocumentFragment();
+  const means = points.map((p) => p.mean_ret);
+  const maxIdx = means.reduce((best, m, i) => (m > means[best] ? i : best), 0);
+  const minIdx = means.reduce((best, m, i) => (m < means[best] ? i : best), 0);
+  const peak = points[maxIdx];
+  const trough = points[minIdx];
+  const last = points[points.length - 1];
+  const first = points[0];
+  const reversed = last.mean_ret < 0 && first.mean_ret > 0;
+  const eroded = !reversed && last.mean_ret < peak.mean_ret * 0.5;
+
+  let verdict;
+  if (reversed) {
+    verdict = `Signal flips sign by month ${last.age_months} — holding period is too long, mean-reversion dominates late.`;
+  } else if (eroded) {
+    verdict = `Peak at month ${peak.age_months} (${(peak.mean_ret * 100).toFixed(2)}%/mo) decays to ${(last.mean_ret * 100).toFixed(2)}%/mo by month ${last.age_months} — alpha is front-loaded.`;
+  } else {
+    verdict = `Return stays within ${(Math.abs(peak.mean_ret - trough.mean_ret) * 100).toFixed(2)}% across the holding period — signal is stable across ages.`;
+  }
+
+  return el('div', { class: 'flag-banner', style: 'border-color: var(--border-soft); color: var(--text-muted); background: transparent;' }, [
+    el('div', { class: 'head', style: 'color: var(--accent);' }, 'How to read this'),
+    el('div', {}, verdict),
+    el('div', { style: 'margin-top:4px; font-size:11px;' },
+      'Each bar is the cross-tranche mean gross return at that age (months since formation). Whiskers = ±1 SE. Peak age tells you the best holding horizon; reversal tells you where to cut.',
+    ),
+  ]);
 }
 
 // ---------- Interactive equity + drawdown chart ----------
@@ -1960,6 +2133,29 @@ function buildDecayCard({ title, xLabel, points, marker, markerLabel }) {
     el('span', { class: 'decay-title' }, title),
     el('span', { class: 'decay-x' }, xLabel),
   ]));
+
+  // Degenerate-sweep fallback: if every y-value is the same (no variance
+  // across the sweep), a line chart shows a flat line and collapses the
+  // axis labels on top of each other — misleading and ugly. Replace with a
+  // one-line explainer so the user understands *why* there's nothing to
+  // show (almost always: intramonth lag is a no-op on monthly price data).
+  if (points.length > 1) {
+    const ysSpread = points.map((p) => p.y);
+    const ySpan = Math.max(...ysSpread) - Math.min(...ysSpread);
+    if (ySpan < 5e-5) {
+      const flatVal = ysSpread[0];
+      const sweep = points.map((p) => p.x).join(', ');
+      card.appendChild(el('div', { class: 'decay-flat' }, [
+        el('div', { class: 'decay-flat-val' }, (flatVal * 100).toFixed(2) + '%/mo'),
+        el('div', { class: 'decay-flat-note' },
+          `Flat across ${xLabel} ∈ {${sweep}} — sweep has no measurable effect on this data panel. ` +
+          `Likely cause: monthly price data can't resolve intramonth ${xLabel.replace(/_/g, ' ')} shifts.`,
+        ),
+      ]));
+      return card;
+    }
+  }
+
   const W = 360, H = 160, padL = 38, padR = 14, padT = 12, padB = 24;
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);

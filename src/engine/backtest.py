@@ -40,6 +40,7 @@ from src.engine.signals import compute_signal
 from src.engine.tranches import Tranche, active_tranches_in
 from src.specs import (
     BacktestResult,
+    FormationDecayPoint,
     ProvenanceRecord,
     ReplicationSpec,
     ReturnObservation,
@@ -158,6 +159,10 @@ def run_backtest(
 
     cost_per_month = per_period_cost(gross, holding_months, transaction_cost_bps)
     observations: list[ReturnObservation] = []
+    # Age-bucket accumulator for the post-formation decay curve: age (months
+    # since formation, 1..K) → list of per-tranche gross returns. One entry
+    # per (tranche, measurement-month) pair with a well-defined return.
+    decay_buckets: dict[int, list[float]] = {}
     for t in measurement_months:
         active = active_tranches_in(t, tranches, holding_months)
         if not active:
@@ -180,6 +185,12 @@ def run_backtest(
             if denom == 0.0:
                 continue
             tranche_rets.append(numer)
+            # Record this tranche's gross return at its current age. Both
+            # dates are month-ends from the same panel index, so a calendar
+            # month-difference is exact.
+            age = (t.year - tr.formation_date.year) * 12 + (t.month - tr.formation_date.month)
+            if 1 <= age <= holding_months:
+                decay_buckets.setdefault(age, []).append(numer)
         if not tranche_rets:
             continue
         gross_ret = sum(tranche_rets) / len(tranche_rets)
@@ -211,6 +222,25 @@ def run_backtest(
     # Average per-period turnover (one-sided, as a fraction of NAV).
     avg_turnover = (gross / holding_months) if holding_months > 0 else 0.0
 
+    # Post-formation decay curve: for each age 1..K, the cross-tranche mean
+    # and sample standard error of the per-tranche gross return. Emits one
+    # FormationDecayPoint per age with at least one observation.
+    decay_by_age: list[FormationDecayPoint] = []
+    for age in sorted(decay_buckets):
+        vals = np.asarray(decay_buckets[age], dtype=float)
+        n = int(vals.size)
+        if n == 0:
+            continue
+        mean_val = float(vals.mean())
+        # Sample SE of the mean; ddof=1 and guard n<2.
+        se = float(vals.std(ddof=1) / np.sqrt(n)) if n >= 2 else 0.0
+        decay_by_age.append(FormationDecayPoint(
+            age_months=age,
+            mean_ret=mean_val,
+            std_error=se,
+            n_observations=n,
+        ))
+
     provenance = price_q.provenance.child(
         source_id="engine:backtest",
         source_tier="synthesized",
@@ -240,6 +270,7 @@ def run_backtest(
         transaction_cost_bps=transaction_cost_bps,
         return_convention="arithmetic_monthly",
         newey_west_lag=nw_lag,
+        decay_by_age=tuple(decay_by_age),
         data_quality_flags=tuple(data_quality_flags),
         provenance=provenance,
     )

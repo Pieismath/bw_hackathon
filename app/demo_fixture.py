@@ -18,6 +18,7 @@ from src.specs import (
     BacktestResult,
     Criticism,
     DivergenceDiagnosis,
+    FormationDecayPoint,
     HeadlineClaim,
     MutationProposal,
     MutationResult,
@@ -325,6 +326,17 @@ def _build_backtest(spec: ReplicationSpec) -> BacktestResult:
         transaction_cost_bps=0.0,
         return_convention="arithmetic_monthly",
         newey_west_lag=5,
+        # Illustrative post-formation decay profile — JT-style momentum peaks
+        # mid-holding and fades; these magnitudes are consistent with a demo
+        # ~0.43%/mo aggregate strategy averaged over 6 active tranches.
+        decay_by_age=(
+            FormationDecayPoint(age_months=1, mean_ret=0.0061, std_error=0.0009, n_observations=312),
+            FormationDecayPoint(age_months=2, mean_ret=0.0075, std_error=0.0009, n_observations=312),
+            FormationDecayPoint(age_months=3, mean_ret=0.0068, std_error=0.0010, n_observations=312),
+            FormationDecayPoint(age_months=4, mean_ret=0.0051, std_error=0.0010, n_observations=312),
+            FormationDecayPoint(age_months=5, mean_ret=0.0028, std_error=0.0011, n_observations=312),
+            FormationDecayPoint(age_months=6, mean_ret=0.0002, std_error=0.0012, n_observations=312),
+        ),
         data_quality_flags=(
             "Yahoo-sourced universe excludes delisted names — survivorship bias.",
             "Exchange tag unavailable in defeatbeta panel — NYSE/AMEX filter was dropped.",
