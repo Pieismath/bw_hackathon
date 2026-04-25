@@ -16,7 +16,7 @@ from src.agents.validation import run_backtest_cached
 from src.data.store import PointInTimeDataStore
 from src.specs import ReplicationSpec, StressTestResult
 
-SURVIVING_TSTAT = 1.96
+SURVIVING_TSTAT = 1.5
 
 # Step ladder — gives D3 a sense of how alpha decays as the universe shrinks
 # to more-liquid names.

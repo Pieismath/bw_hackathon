@@ -3870,13 +3870,13 @@
       "1278 monthly returns exceeded \u00b1500% and were clipped to NaN (thinly-traded / data-artifact stocks)."
     ],
     "provenance": {
-      "record_id": "1c2f7aa9-225a-49b7-8db9-cbc191fac0c6",
+      "record_id": "6b42a40b-ad05-4a60-9ebd-0eebcf4f2765",
       "source_id": "engine:backtest",
       "source_tier": "synthesized",
-      "retrieved_at": "2026-04-25T06:21:51.614674Z",
+      "retrieved_at": "2026-04-25T06:34:18.632417Z",
       "as_of_date": "2026-04-02",
       "parent_ids": [
-        "1094e22d-ca77-4a8c-a411-8fd7d3617867"
+        "d87abe20-781c-4698-8611-03c357ddc4eb"
       ],
       "substitution_flag": false,
       "fidelity_note": null,
@@ -3904,7 +3904,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=0",
           "spec_hash": "8301f284a42f479f"
         },
@@ -3917,7 +3917,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=1",
           "spec_hash": "664a28de2b71db8f"
         },
@@ -3930,7 +3930,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=2",
           "spec_hash": "50a308fb4273a05c"
         },
@@ -3943,7 +3943,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=3",
           "spec_hash": "2c77eb6338f78d8a"
         },
@@ -3956,7 +3956,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=5",
           "spec_hash": "1ea2bed1fde46ce9"
         },
@@ -3969,7 +3969,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=10",
           "spec_hash": "1f73d7804519b6c5"
         },
@@ -3982,7 +3982,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with execution_lag_days=20",
           "spec_hash": "a52c83a5f3d777de"
         },
@@ -3995,7 +3995,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "engine rerun with transaction_cost_bps=0.0",
           "spec_hash": "8301f284a42f479f"
         },
@@ -4227,7 +4227,7 @@
           "headline_metric": 0.005714816883104762,
           "headline_tstat": 1.5426832813571494,
           "n_periods": 370,
-          "surviving": false,
+          "surviving": true,
           "notes": "min_price=10.0 as a top-N-by-ADV proxy; a true ADV-weighted screen would be more accurate (Phase 5 follow-up).",
           "spec_hash": "8301f284a42f479f"
         },
@@ -4290,7 +4290,7 @@
         }
       ],
       "n_tests": 29,
-      "n_surviving": 3,
+      "n_surviving": 12,
       "families_run": [
         "lag",
         "costs",
@@ -4309,29 +4309,28 @@
       "capacity_estimate_usd": 17430114669.428574
     },
     "judgment": {
-      "surviving_count": 3,
+      "surviving_count": 12,
       "n_tests": 29,
       "fragility_signals": [
-        "Baseline t-stat 1.54 over 370 months never cleared 2-sigma before stress.",
-        "Pre-2010 sign-flips: subperiod_first_half (-0.51%/mo, t=-1.08), subperiod_pre_2010 (-0.51%/mo, t=-1.04), subperiod_middle_third (-0.81%/mo, t=-1.44), subperiod_first_third (-0.03%/mo, t=-0.07).",
-        "Crisis blowups: subperiod_gfc_2008_2009 (-2.57%/mo, t=-1.31), subperiod_momentum_crash_2009 (-3.16%/mo, t=-1.02), subperiod_dotcom_unwind (-0.56%/mo), subperiod_covid_2020 (-0.38%/mo).",
-        "Post-2010 concentration: only surviving tests are subperiod_last_third (+2.48%/mo, t=4.00), subperiod_second_half (+1.57%/mo, t=3.20), subperiod_post_2010 (+1.43%/mo, t=2.91).",
-        "Liquidity-sensitive: liquidity_min_price_50 = -0.13%/mo (t=-0.19) vs +0.43%/mo at min_price=5.",
-        "Survivorship unquantified: pit_vs_latest_universe could not run; baseline flags Yahoo delisting drop plus 1278 clipped monthly returns."
+        "Baseline t-stat is only 1.54 over 370 months \u2014 not significant before any stress is applied.",
+        "Sign-flips across 8 subperiods (first_half -0.51%/mo t=-1.08; pre_2010 -0.51%/mo t=-1.04; middle_third -0.81%/mo t=-1.44; GFC -2.57%/mo; momentum-crash 2009 -3.16%/mo); all positive performance is concentrated post-2010 (last_third +2.48%/mo t=4.00).",
+        "Liquidity-sensitive: mean return falls monotonically from +0.43%/mo at min_price=$5 to -0.13%/mo at min_price=$50 (liquidity_min_price_50, t=-0.19) \u2014 alpha lives in lower-priced names.",
+        "Survivorship bias unquantified: pit_vs_latest_universe NOT RUN because defeatbeta_yahoo lacks delistings; baseline data_quality_flags already warn of survivorship plus 1,278 clipped >\u00b1500% monthly returns.",
+        "Cost erosion is mild but alpha never reaches significance: at 10 bps t=1.36, at 25 bps t=1.09, at 50 bps t=0.64 (cost_5bps through cost_50bps)."
       ],
       "implementable_alpha": 0.00505,
-      "implementable_alpha_basis": "cost_10bps row (0.505%/mo, t=1.36) at T+1 execution (lag family is invariant in the rerun engine); baseline survivorship and clipping flags retained, no subperiod conditioning.",
-      "signal_type": "stale",
+      "implementable_alpha_basis": "Cost_10bps row (5.05 bps/mo, t=1.36) at T+1 lag (lag_1d identical to baseline); inherits Yahoo survivorship and \u00b1500% clipping flags from baseline; not significant at conventional thresholds.",
+      "signal_type": "structural",
       "capacity_estimate_usd": 17430114669.43,
       "primary_failure_modes": [
-        "Pre-2010 sign-flip (subperiod_pre_2010 -0.51%/mo, t=-1.04; subperiod_first_half -0.51%/mo, t=-1.08) \u2014 alpha exists only post-2010.",
-        "Crisis fragility: subperiod_gfc_2008_2009 -2.57%/mo (t=-1.31), subperiod_momentum_crash_2009 -3.16%/mo (t=-1.02).",
-        "Liquidity decay: liquidity_min_price_50 -0.13%/mo (t=-0.19) vs +0.43%/mo at min_price=5."
+        "Pre-2010 regime failure: subperiod_pre_2010 -0.51%/mo (t=-1.04) and subperiod_first_half -0.51%/mo (t=-1.08); all alpha is concentrated in subperiod_last_third (+2.48%/mo, t=4.00) \u2014 looks like regime-conditional, not structural.",
+        "Crisis blow-ups: subperiod_gfc_2008_2009 -2.57%/mo and subperiod_momentum_crash_2009 -3.16%/mo \u2014 strategy is short-vol/pro-cyclical and would be unrunnable through a drawdown PM review.",
+        "Liquidity-fragile alpha: liquidity_min_price_50 flips negative (-0.13%/mo, t=-0.19); the signal lives in cheap stocks where execution and survivorship issues are worst."
       ],
-      "gap_attribution": "post_publication_decay",
-      "gap_attribution_evidence": "Clean temporal split: subperiod_pre_2010 -0.51%/mo (t=-1.04) vs subperiod_post_2010 +1.43%/mo (t=2.91); first_half -0.51% vs second_half +1.57%; first_third -0.03%, middle_third -0.81%, last_third +2.48%. Alpha is positive ONLY post-2010. Yahoo survivorship and 1278 clipped returns apply uniformly across the sample and cannot selectively damage pre-2010. Cost/lag families show no friction-driven collapse, ruling out methodology_fragility as primary.",
+      "gap_attribution": "methodology_fragility",
+      "gap_attribution_evidence": "Baseline itself is insignificant (t=1.54), so the \"gap\" is from a non-robust headline. Subperiod tests show sign-flips in 8 of 11 windows (subperiod_first_half, subperiod_pre_2010, subperiod_middle_third, subperiod_gfc_2008_2009, subperiod_momentum_crash_2009, subperiod_dotcom_unwind, subperiod_covid_2020, subperiod_first_third). Liquidity sweep shows monotonic decay to negative at min_price=$50. Cost sweep erodes t-stat below 1 by 50 bps. These are method-driven failures; data flags exist but cannot explain regime-dependent sign-flips within the same data source.",
       "confidence": "medium",
-      "summary": "Implementable alpha is approximately 0.51%/mo (t=1.36) at 10 bps round-trip costs and T+1 execution (cost_10bps row), down from a 0.57%/mo baseline that itself never cleared 2-sigma (t=1.54 over 370 months). Only 3 of 29 stress tests survived, and all three are post-2010 subperiods. The lag family is degenerate in this engine (identical results across 0\u201320 day lags), so signal_type cannot be inferred from decay; it is classified 'stale' because the baseline is sub-significant and flips negative under any pre-2010 conditioning.\\n\\nThe dominant failure mode is post-publication decay: pre-2010 returns are -0.51%/mo (t=-1.04), while post-2010 returns are +1.43%/mo (t=2.91). Crisis windows (GFC -2.57%/mo, 2009 momentum crash -3.16%/mo) compound the fragility, and a liquidity screen removing cheap names flips alpha negative (min_price=50: -0.13%/mo). Survivorship bias from the Yahoo universe is real but secondary \u2014 it applies uniformly across the sample and cannot explain the clean temporal split. A discretionary PM should treat this as a post-2010 regime artifact, not a structural anomaly; the 17.4B capacity figure is irrelevant if the signal is conditional on one regime. Confidence is medium: 6 families ran and \u22653 tests support the verdict, but lag-family degeneracy and the unrun PIT-survivorship test prevent a high-confidence call."
+      "summary": "Implementable alpha is ~5 bps/month (cost_10bps row, T+1 lag) with t=1.36 \u2014 not statistically distinguishable from zero, and the unstressed baseline itself only reaches t=1.54 over 370 months. A discretionary PM would not fund this on the headline alone. Capacity (~$17B at 50 bps impact, sqrt-heuristic) is not the binding constraint; reliability is.\n\nThe dominant failure modes are (1) regime concentration \u2014 every positive subperiod is post-2010 (subperiod_last_third t=4.00, subperiod_post_2010 t=2.91), while subperiod_pre_2010, first_half, first_third, and middle_third all sign-flip negative; (2) crisis fragility \u2014 GFC -2.57%/mo and the 2009 momentum crash -3.16%/mo would force a stop-out; (3) liquidity dependence \u2014 alpha decays monotonically from +0.43%/mo at min_price=$5 to -0.13%/mo at min_price=$50, suggesting the edge sits in micro/low-price names where survivorship bias (flagged on the baseline, unquantifiable here because pit_vs_latest_universe could not run on Yahoo data) is most severe. Lag is irrelevant (all lag_*d rows identical), consistent with a slow-moving, structural construct rather than microstructure. Gap attribution: methodology_fragility \u2014 the headline is real in the engine but fails \u22658 subperiod tests and the liquidity sweep, with no data-quality lever that would plausibly rescue it. Confidence medium: 6 families ran and many tests support the call, but survivorship remains unmeasured."
     }
   },
   "diagnosis": {

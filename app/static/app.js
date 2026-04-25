@@ -1066,12 +1066,15 @@ function tradeableLabel_(implAlpha, confidence, tstat, opts = {}) {
 // Mirrors src/agents/synthesis/report_synthesizer._basis_matched_tstat
 function basisMatchedTstat(scorecard, implAlpha) {
   if (!scorecard || implAlpha === null || implAlpha === undefined) return null;
-  const rows = scorecard.rows || scorecard.scenarios || [];
+  // Live RobustnessScorecard puts rows under `.tests` with field
+  // `headline_tstat`; the synthesized E1 report uses `.rows` /
+  // `.scenarios` with `tstat`. Accept either shape.
+  const rows = scorecard.tests || scorecard.rows || scorecard.scenarios || [];
   let bestT = null;
   let bestDiff = 0.0025; // 25 bps tolerance
   for (const r of rows) {
     const m = r.headline_metric ?? r.headline ?? r.mean_return;
-    const t = r.tstat ?? r.alpha_tstat;
+    const t = r.headline_tstat ?? r.tstat ?? r.alpha_tstat;
     if (m === null || m === undefined || t === null || t === undefined) continue;
     const diff = Math.abs(m - implAlpha);
     if (diff < bestDiff) { bestDiff = diff; bestT = t; }
@@ -3377,9 +3380,11 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   }
 
   // Implementable α + tag from D3 judgment, falling back to the scorecard
-  // baseline if D3 is unavailable.
+  // baseline if D3 is unavailable. The live RobustnessJudgment doesn't
+  // carry a tstat directly — derive it by finding the scorecard row whose
+  // headline_metric matches implementable_alpha (basisMatchedTstat).
   const alpha = j ? j.implementable_alpha : sc.baseline_mean_return;
-  const tstat = j ? null : sc.baseline_tstat;
+  const tstat = j ? (j.tstat_estimate ?? basisMatchedTstat(sc, j.implementable_alpha)) : sc.baseline_tstat;
   const conf  = j ? j.confidence : 'medium';
   const sigType = j ? j.signal_type : '—';
   const gap = j ? j.gap_attribution : null;
@@ -3401,7 +3406,9 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
     }
   }
   const it = $('#vs-impl-tstat');
-  if (it) it.textContent = (j ? '' : fmtTstat(tstat));
+  // tstat is now derived above (basisMatchedTstat from the scorecard)
+  // even when D3's judgment lacks an explicit tstat_estimate — render it.
+  if (it) it.textContent = fmtTstat(tstat);
   const tagLabel = tradeableLabel(alpha, tstat ?? 0, conf, { proxyMode, noTarget });
   const tag = $('#vs-tag');
   if (tag) tag.textContent = tagLabel;

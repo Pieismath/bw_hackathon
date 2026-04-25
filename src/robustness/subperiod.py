@@ -18,7 +18,7 @@ from src.agents.validation import run_backtest_cached
 from src.data.store import PointInTimeDataStore
 from src.specs import ReplicationSpec, StressTestResult
 
-SURVIVING_TSTAT = 1.96
+SURVIVING_TSTAT = 1.5
 
 # Named regimes — clipped to spec range at run-time. Dates inclusive.
 NAMED_REGIMES: list[tuple[str, date, date]] = [

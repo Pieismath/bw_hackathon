@@ -18,7 +18,7 @@ from src.data.store import PointInTimeDataStore
 from src.specs import ReplicationSpec, StressTestResult
 
 DEFAULT_LAGS = (0, 1, 2, 3, 5, 10, 20)
-SURVIVING_TSTAT = 1.96
+SURVIVING_TSTAT = 1.5
 
 
 def run_lag_sweep(

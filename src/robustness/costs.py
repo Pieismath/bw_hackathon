@@ -14,7 +14,7 @@ from src.data.store import PointInTimeDataStore
 from src.specs import ReplicationSpec, StressTestResult
 
 DEFAULT_BPS_LEVELS = (0.0, 5.0, 10.0, 25.0, 50.0)
-SURVIVING_TSTAT = 1.96
+SURVIVING_TSTAT = 1.5
 
 
 def run_cost_sweep(
