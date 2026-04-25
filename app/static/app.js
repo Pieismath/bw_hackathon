@@ -79,7 +79,9 @@ function readDialForm() {
     ? Array.from(exchangesEl.querySelectorAll('input[type="checkbox"]:checked')).map((c) => c.value)
     : [];
   const weightingEl = document.querySelector('input[name="weighting"]:checked');
+  const universeNameEl = $('#dial-universe-name');
   return {
+    universe_name: universeNameEl ? universeNameEl.value : '',
     min_price: numOrNull($('#dial-min-price').value),
     start_date: $('#dial-start-date').value || null,
     end_date: $('#dial-end-date').value || null,
@@ -168,6 +170,10 @@ function applyDials(spec) {
 
   // Universe
   out.universe = out.universe || {};
+  // Universe-name override routes the engine to a different data source
+  // (defeatbeta stocks vs. Ken French factors). When the dropdown is at
+  // its blank default we leave A1's value untouched.
+  if (dial.universe_name) out.universe.name = dial.universe_name;
   if (dial.min_price != null) out.universe.min_price = dial.min_price;
   out.universe.exchanges = dial.exchanges; // tuple in pydantic, list in JSON
 
@@ -1565,13 +1571,17 @@ function renderBacktest(bt, paperClaim) {
 // the SHAPE — traders read it as "signal peaks at month X, fades by month Y".
 
 function buildDecayByAgeChart(points) {
-  const w = 640, h = 180;
-  const padL = 44, padR = 14, padT = 12, padB = 28;
+  const n = points.length;
+  // Density-aware sizing so 96 bars don't get crammed into 640 px. The
+  // viewBox grows but is capped — `chart-wrap-scroll` lets the user scroll
+  // horizontally if it overflows the container. Bars never go below ~5 px.
+  const w = Math.max(640, Math.min(n * 10 + 80, 1400));
+  const h = 200;
+  const padL = 44, padR = 14, padT = 14, padB = 30;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
-  const wrap = el('div', { class: 'chart-wrap' });
+  const wrap = el('div', { class: 'chart-wrap chart-wrap-decay', style: 'position:relative;' });
 
-  const ages = points.map((p) => p.age_months);
   const means = points.map((p) => p.mean_ret);
   const ses = points.map((p) => p.std_error);
   const yMaxRaw = Math.max(0, ...means.map((m, i) => m + ses[i]));
@@ -1581,11 +1591,16 @@ function buildDecayByAgeChart(points) {
   const yMin = yMinRaw - yPad;
   const yToPx = (y) => padT + innerH * (1 - (y - yMin) / (yMax - yMin));
 
-  const n = points.length;
   const slot = innerW / n;
-  const barW = Math.min(slot * 0.55, 48);
+  const barW = Math.min(slot * 0.65, 48);
   const xToPx = (i) => padL + slot * (i + 0.5) - barW / 2;
   const cxToPx = (i) => padL + slot * (i + 0.5);
+
+  // Density gates — collapse decoration that becomes noise at high N.
+  const showValueLabels = n <= 12;
+  const showWhiskers = n <= 60;
+  // Sparse x-axis: aim for ~10 visible labels across the chart.
+  const xLabelStride = Math.max(1, Math.ceil(n / 12));
 
   const s = svgEl('svg', {
     xmlns: SVG_NS,
@@ -1593,6 +1608,7 @@ function buildDecayByAgeChart(points) {
     width: '100%',
     preserveAspectRatio: 'none',
     class: 'decay-chart',
+    style: 'cursor:crosshair;',
   });
 
   // Zero line
@@ -1602,8 +1618,8 @@ function buildDecayByAgeChart(points) {
     stroke: '#3a4354', 'stroke-width': '1', 'stroke-dasharray': '3,3',
   }));
 
-  // Y-axis ticks (zero, min, max)
-  [yMin + yPad, 0, yMax - yPad].forEach((val, i) => {
+  // Y-axis ticks (min, zero, max)
+  [yMin + yPad, 0, yMax - yPad].forEach((val) => {
     const yy = yToPx(val);
     s.appendChild(svgEl('line', {
       x1: padL - 4, x2: padL, y1: yy, y2: yy, stroke: '#2a3240', 'stroke-width': '1',
@@ -1617,7 +1633,7 @@ function buildDecayByAgeChart(points) {
     s.appendChild(lbl);
   });
 
-  // Bars + error whiskers + x labels + tooltips
+  // Bars + (conditional) whiskers + (sparse) x labels + (conditional) value labels.
   points.forEach((p, i) => {
     const cx = cxToPx(i);
     const x = xToPx(i);
@@ -1631,54 +1647,121 @@ function buildDecayByAgeChart(points) {
       x, y: barTop, width: barW, height: Math.max(barHeight, 1),
       fill: color, stroke, 'stroke-width': '1',
     });
-    const tip = svgEl('title');
-    tip.textContent = `Month ${p.age_months} after formation · mean ${(p.mean_ret * 100).toFixed(3)}%  (±${(p.std_error * 100).toFixed(3)}%) · n=${p.n_observations}`;
-    bar.appendChild(tip);
     s.appendChild(bar);
 
-    // Error whiskers
-    if (p.std_error > 0) {
+    if (showWhiskers && p.std_error > 0) {
       const yHi = yToPx(p.mean_ret + p.std_error);
       const yLo = yToPx(p.mean_ret - p.std_error);
+      const opacity = n > 30 ? '0.45' : '1';
       s.appendChild(svgEl('line', {
         x1: cx, x2: cx, y1: yHi, y2: yLo,
-        stroke: '#cbd1dc', 'stroke-width': '1',
+        stroke: '#cbd1dc', 'stroke-width': '1', 'stroke-opacity': opacity,
       }));
+      const cap = Math.min(4, barW * 0.4);
       [yHi, yLo].forEach((yy) => {
         s.appendChild(svgEl('line', {
-          x1: cx - 4, x2: cx + 4, y1: yy, y2: yy,
-          stroke: '#cbd1dc', 'stroke-width': '1',
+          x1: cx - cap, x2: cx + cap, y1: yy, y2: yy,
+          stroke: '#cbd1dc', 'stroke-width': '1', 'stroke-opacity': opacity,
         }));
       });
     }
 
-    // X label (month number)
-    const xl = svgEl('text', {
-      x: cx, y: h - padB + 14,
-      fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
-      'text-anchor': 'middle',
-    });
-    xl.textContent = String(p.age_months);
-    s.appendChild(xl);
+    // Sparse x labels — first, last, and every Nth in between.
+    const isEdge = i === 0 || i === n - 1;
+    if (isEdge || (i % xLabelStride === 0)) {
+      const xl = svgEl('text', {
+        x: cx, y: h - padB + 14,
+        fill: '#8b90a0', 'font-family': 'JetBrains Mono', 'font-size': '10',
+        'text-anchor': 'middle',
+      });
+      xl.textContent = String(p.age_months);
+      s.appendChild(xl);
+    }
 
-    // Value label above bar
-    const vl = svgEl('text', {
-      x: cx, y: (p.mean_ret >= 0 ? yVal - 4 : yVal + 12),
-      fill: '#cbd1dc', 'font-family': 'JetBrains Mono', 'font-size': '9.5',
-      'text-anchor': 'middle',
-    });
-    vl.textContent = (p.mean_ret * 100).toFixed(2) + '%';
-    s.appendChild(vl);
+    if (showValueLabels) {
+      const vl = svgEl('text', {
+        x: cx, y: (p.mean_ret >= 0 ? yVal - 4 : yVal + 12),
+        fill: '#cbd1dc', 'font-family': 'JetBrains Mono', 'font-size': '9.5',
+        'text-anchor': 'middle',
+      });
+      vl.textContent = (p.mean_ret * 100).toFixed(2) + '%';
+      s.appendChild(vl);
+    }
   });
 
   // X-axis caption
   const xcap = svgEl('text', {
-    x: padL + innerW / 2, y: h - 2,
+    x: padL + innerW / 2, y: h - 4,
     fill: '#6b7280', 'font-family': 'JetBrains Mono', 'font-size': '10',
     'text-anchor': 'middle',
   });
   xcap.textContent = 'months since formation';
   s.appendChild(xcap);
+
+  // Hover crosshair — a vertical line + focus dot snapping to the nearest
+  // bar, plus a tooltip pill. This is how users get exact values when the
+  // per-bar labels are suppressed at high N.
+  const vLine = svgEl('line', {
+    y1: padT, y2: h - padB,
+    stroke: '#9aa3b2', 'stroke-width': '1', 'stroke-dasharray': '3 3',
+    visibility: 'hidden', 'pointer-events': 'none',
+  });
+  const focus = svgEl('circle', {
+    r: '4', fill: '#fff', stroke: '#5b9dff', 'stroke-width': '1.5',
+    visibility: 'hidden', 'pointer-events': 'none',
+  });
+  s.appendChild(vLine);
+  s.appendChild(focus);
+
+  const tip = el('div', { class: 'decay-tip hidden' });
+  wrap.appendChild(tip);
+  function hideHover() {
+    vLine.setAttribute('visibility', 'hidden');
+    focus.setAttribute('visibility', 'hidden');
+    tip.classList.add('hidden');
+  }
+  s.addEventListener('mousemove', (ev) => {
+    const rect = s.getBoundingClientRect();
+    const localX = ((ev.clientX - rect.left) / rect.width) * w;
+    if (localX < padL || localX > padL + innerW) { hideHover(); return; }
+    let bestI = 0, bestDx = Infinity;
+    for (let i = 0; i < n; i++) {
+      const dx = Math.abs(cxToPx(i) - localX);
+      if (dx < bestDx) { bestI = i; bestDx = dx; }
+    }
+    const p = points[bestI];
+    const cx = cxToPx(bestI);
+    const cy = yToPx(p.mean_ret);
+    vLine.setAttribute('x1', cx); vLine.setAttribute('x2', cx);
+    focus.setAttribute('cx', cx); focus.setAttribute('cy', cy);
+    vLine.setAttribute('visibility', 'visible');
+    focus.setAttribute('visibility', 'visible');
+    tip.innerHTML = '';
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, 'age:'),
+      el('span', { class: 'decay-tip-val mono' }, `month ${p.age_months}`),
+    ]));
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, 'mean:'),
+      el('span', { class: 'decay-tip-val mono ' + (p.mean_ret >= 0 ? 'pos' : 'neg') }, fmtPct(p.mean_ret, 3)),
+    ]));
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, '±SE:'),
+      el('span', { class: 'decay-tip-val mono' }, (p.std_error * 100).toFixed(3) + '%'),
+    ]));
+    tip.appendChild(el('div', { class: 'decay-tip-row' }, [
+      el('span', { class: 'decay-tip-key' }, 'n:'),
+      el('span', { class: 'decay-tip-val mono' }, String(p.n_observations)),
+    ]));
+    const wrapRect = wrap.getBoundingClientRect();
+    const tipX = (cx / w) * wrapRect.width;
+    const tipY = (cy / h) * wrapRect.height;
+    const offsetX = tipX > wrapRect.width / 2 ? -130 : 12;
+    tip.style.left = `${Math.max(4, Math.min(wrapRect.width - 130, tipX + offsetX))}px`;
+    tip.style.top = `${Math.max(4, tipY - 10)}px`;
+    tip.classList.remove('hidden');
+  });
+  s.addEventListener('mouseleave', hideHover);
 
   wrap.appendChild(s);
   return wrap;
