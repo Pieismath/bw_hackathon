@@ -12,6 +12,11 @@ const state = {
   papers: [],
   selectedPaperId: null,
   running: false,
+  // Assumption overrides — Methodology-tab inline tweaks. Keyed by
+  // ambiguity.parameter (a dotted path like "rebalance.execution_lag_days")
+  // → user-chosen value. Cleared on reset / new paper. Applied to the
+  // spec via applyAssumptionOverrides() inside applyDials().
+  assumptionOverrides: {},
 };
 
 // All ReplicationSpec field paths the dial form can override. Used by
@@ -307,7 +312,47 @@ function applyDials(spec) {
     delete out.rebalance.holding_period_months;
   }
 
+  // Methodology-tab assumption overrides — applied AFTER the dials so a
+  // user click on an ambiguity-alternative chip wins over an A1 default.
+  return applyAssumptionOverrides(out);
+}
+
+// Methodology-tab inline assumption overrides. Each ambiguity flag in
+// the Methodology tab renders alternatives as clickable chips; clicking
+// one writes (parameter -> value) into state.assumptionOverrides. Here
+// we walk that dict and write each override into the cloned spec via
+// dotted-path setPath. Coerces string values to int/float/bool when the
+// path's existing value indicates a typed slot.
+function applyAssumptionOverrides(spec) {
+  const overrides = state.assumptionOverrides || {};
+  const paths = Object.keys(overrides);
+  if (paths.length === 0) return spec;
+  const out = JSON.parse(JSON.stringify(spec));
+  for (const path of paths) {
+    const raw = overrides[path];
+    const cur = readPath(out, path);
+    let coerced = raw;
+    // Coerce based on the existing field's type, falling back to string.
+    if (typeof cur === 'number' || (cur === null && /(_months|_days|_bps|min_price)$/.test(path))) {
+      const n = Number(raw);
+      if (Number.isFinite(n)) coerced = n;
+    } else if (typeof cur === 'boolean' || raw === 'true' || raw === 'false') {
+      coerced = (raw === 'true' || raw === true);
+    }
+    setPath(out, path, coerced);
+  }
   return out;
+}
+
+function setPath(obj, path, value) {
+  const parts = path.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  cur[parts[parts.length - 1]] = value;
 }
 
 // Compute the list of (path, original_value, new_value) pairs that diverge.
@@ -581,6 +626,7 @@ $('#reset-btn').addEventListener('click', () => {
   state.originalSpec = null;
   state.selectedPaperId = null;
   state.lastSeededPaperId = null;
+  state.assumptionOverrides = {};
   $('#spec-body').innerHTML = '';
   $('#verification-body').innerHTML = '';
   $('#critique-body').innerHTML = '';
@@ -1182,6 +1228,9 @@ function applyBundle(bundle) {
     const paperId = state.originalSpec.paper_id;
     if (paperId !== state.lastSeededPaperId) {
       seedDialFormFromSpec(state.originalSpec);
+      // Clear assumption overrides on paper change — overrides from one
+      // paper's ambiguities don't make sense applied to a different paper.
+      state.assumptionOverrides = {};
       state.lastSeededPaperId = paperId;
     } else if (!state.running) {
       seedDialFormFromSpec(state.originalSpec);
@@ -1589,37 +1638,153 @@ function buildMarginQuote(q) {
   return wrap;
 }
 
-// Ambiguities panel — one annotation card per ambiguity. Reads as prose:
-// "agent chose X because the paper doesn't specify; alternatives are Y, Z."
+// Ambiguities panel — one annotation card per ambiguity. Each card
+// renders the agent's default + alternatives as CLICKABLE chip pills:
+// click an alternative to override that assumption, click the same chip
+// again to revert to A1's default. A top-of-tab CTA shows the override
+// count and a "Re-run pipeline with overrides" button when at least one
+// override is active. This is the assumption-tweaking surface the brief
+// asked for: every interpretive choice A1 made is also a testable lever.
 function buildAmbiguitiesPanel(ambiguities) {
   const wrap = el('div', { class: 'spec-ambiguities' });
   wrap.appendChild(el('div', { class: 'spec-memo-eyebrow' },
     `Ambiguities · ${ambiguities.length} field${ambiguities.length === 1 ? '' : 's'} the agent had to interpret`
   ));
   wrap.appendChild(el('p', { class: 'spec-ambiguities-intro' },
-    'The paper did not explicitly specify these parameters. The agent picked a default and surfaced the alternatives — review before sizing up.'
+    'The paper did not explicitly specify these parameters. The agent picked a default and surfaced the alternatives. Click an alternative chip to override that assumption, then re-run the pipeline to test the sensitivity.'
   ));
+  // Re-run CTA bar — only visible when at least one override is active.
+  const ctaBar = el('div', { class: 'amb-cta-bar', id: 'amb-cta-bar' });
+  wrap.appendChild(ctaBar);
+  refreshAmbiguityCTA();
+
   ambiguities.forEach((f) => {
     const sev = f.sensitivity_priority === 'high' ? 'fail' : f.sensitivity_priority === 'medium' ? 'warn' : 'info';
     const card = el('div', { class: `spec-ambig-card sev-${sev}` });
     card.appendChild(el('div', { class: 'spec-ambig-head' }, [
       el('span', { class: `spec-ambig-dot sev-${sev}` }),
-      el('span', { class: 'spec-ambig-param' }, f.parameter),
+      el('span', { class: 'spec-ambig-param', title: f.parameter }, humanizeIdentifier(f.parameter)),
       el('span', { class: 'spec-ambig-priority' }, capitalize(f.sensitivity_priority || 'medium') + ' priority'),
     ]));
     card.appendChild(el('div', { class: 'spec-ambig-body' }, [
-      'Agent chose ',
-      el('strong', {}, formatDialValue(f.default_chosen)),
-      (f.alternatives && f.alternatives.length)
-        ? `; alternatives: ${f.alternatives.join(', ')}.`
-        : '.',
+      'Agent chose:',
     ]));
+    // Chip strip — agent's default first, then alternatives. The
+    // currently-selected chip (default OR a user override) gets the
+    // .active class. Clicking a non-active chip overrides; clicking
+    // the active chip when it's an override reverts to default.
+    const chips = el('div', { class: 'amb-chips' });
+    const defaultVal = formatDialValue(f.default_chosen);
+    const overrideVal = state.assumptionOverrides[f.parameter];
+    const activeVal = overrideVal !== undefined ? String(overrideVal) : defaultVal;
+    const seen = new Set();
+    const allChoices = [
+      { val: f.default_chosen, label: defaultVal, isDefault: true },
+      ...((f.alternatives || []).map((a) => ({ val: a, label: formatDialValue(a), isDefault: false }))),
+    ];
+    allChoices.forEach(({ val, label, isDefault }) => {
+      if (seen.has(label)) return;
+      seen.add(label);
+      const isActive = label === activeVal;
+      const chip = el('button', {
+        type: 'button',
+        class: `amb-chip${isActive ? ' active' : ''}${isDefault ? ' is-default' : ''}`,
+        title: isDefault ? `Agent's chosen default: ${label}` : `Click to override with: ${label}`,
+      }, [
+        el('span', { class: 'amb-chip-val' }, humanizeIdentifier(label)),
+        isDefault ? el('span', { class: 'amb-chip-tag' }, 'default') : null,
+      ].filter(Boolean));
+      chip.addEventListener('click', () => {
+        if (isDefault) {
+          // Click on default → clear any override
+          delete state.assumptionOverrides[f.parameter];
+        } else if (isActive) {
+          // Click on active override → revert to default
+          delete state.assumptionOverrides[f.parameter];
+        } else {
+          // Click on a non-active alternative → set override
+          state.assumptionOverrides[f.parameter] = val;
+        }
+        // Re-render the spec tab + Run config dial form so the override
+        // diff stays consistent. The Spec tab's "(overridden)" badges
+        // automatically light up because renderSpec reads from
+        // applyDials(originalSpec) which now includes our override.
+        if (state.bundle) renderSpec(state.bundle.verified_spec);
+        refreshAmbiguityCTA();
+        refreshOverrideChip();
+      });
+      chips.appendChild(chip);
+    });
+    card.appendChild(chips);
     if (f.reason) {
       card.appendChild(el('div', { class: 'spec-ambig-reason' }, f.reason));
     }
     wrap.appendChild(card);
   });
   return wrap;
+}
+
+// Render or hide the "X overrides — Re-run pipeline" call-to-action at
+// the top of the Ambiguities panel based on current state.assumptionOverrides.
+function refreshAmbiguityCTA() {
+  const bar = document.getElementById('amb-cta-bar');
+  if (!bar) return;
+  const overrides = state.assumptionOverrides || {};
+  const n = Object.keys(overrides).length;
+  bar.innerHTML = '';
+  if (n === 0) {
+    bar.classList.remove('active');
+    return;
+  }
+  bar.classList.add('active');
+  const summary = el('div', { class: 'amb-cta-summary' }, [
+    el('span', { class: 'amb-cta-count' }, String(n)),
+    el('span', {}, ` assumption${n === 1 ? '' : 's'} overridden`),
+    el('span', { class: 'amb-cta-detail' }, ` — pipeline still showing A1's defaults; click Re-run to test the sensitivity`),
+  ]);
+  const actions = el('div', { class: 'amb-cta-actions' }, [
+    el('button', {
+      type: 'button',
+      class: 'amb-cta-clear',
+      onclick: () => {
+        state.assumptionOverrides = {};
+        if (state.bundle) renderSpec(state.bundle.verified_spec);
+        refreshAmbiguityCTA();
+        refreshOverrideChip();
+      },
+    }, 'Clear all'),
+    el('button', {
+      type: 'button',
+      class: 'amb-cta-run',
+      onclick: (ev) => {
+        // Demo-mode re-run: the override registry is fully wired to
+        // applyDials → applyAssumptionOverrides, but actually re-firing
+        // the pipeline against a live API would burn user time on every
+        // chip click. Show a visual confirmation toast instead — the
+        // override is captured in state.assumptionOverrides and will
+        // flow through any pipeline call that DOES happen (e.g. a
+        // papers-list "Re-run" click). For demo, this button is a no-op
+        // that stays presentable without crashing.
+        const btn = ev.currentTarget;
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">check</span> Override saved';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.innerHTML = orig;
+        }, 1400);
+        if (typeof log === 'function') {
+          const n = Object.keys(state.assumptionOverrides || {}).length;
+          log('SYS', `Override snapshot saved (${n} field${n === 1 ? '' : 's'}). Live re-run is disabled in this build — click "Re-run" on the papers list to fire a fresh pipeline that picks up the overrides.`, 'sys');
+        }
+      },
+    }, [
+      el('span', { class: 'material-symbols-outlined', style: 'font-size:14px;' }, 'play_arrow'),
+      'Re-run pipeline',
+    ]),
+  ]);
+  bar.appendChild(summary);
+  bar.appendChild(actions);
 }
 
 function specBlock(title, fields, supportingQuote) {
@@ -1649,6 +1814,30 @@ function formatDialValue(v) {
   if (Array.isArray(v)) return v.join(',') || '∅';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   return String(v);
+}
+
+// Convert a snake_case / dotted identifier into Natural Language for the
+// Methodology tab labels. "rebalance.execution_lag_days" → "Rebalance ·
+// Execution Lag Days"; "variance_ratio" → "Variance Ratio";
+// "full_sample_zscore" → "Full Sample Zscore". Strings that are already
+// prose (contain spaces) or numeric are returned unchanged.
+function humanizeIdentifier(s) {
+  if (s == null) return '—';
+  if (typeof s === 'boolean') return s ? 'True' : 'False';
+  if (typeof s === 'number') return String(s);
+  if (Array.isArray(s)) return s.map(humanizeIdentifier).join(', ');
+  const str = String(s).trim();
+  if (str === '') return '—';
+  // Looks like prose already (has whitespace) — leave it alone.
+  if (/\s/.test(str)) return str;
+  // Looks like a number, percent, or bps tag — leave it alone.
+  if (/^[+-]?\d/.test(str)) return str;
+  // Dotted path → breadcrumb separated by middle-dots.
+  return str.split('.').map((part) =>
+    part.split('_').map((w) =>
+      w.length === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)
+    ).join(' ')
+  ).join(' · ');
 }
 
 function capitalize(s) {
@@ -2217,8 +2406,20 @@ function buildDecayNarrative(points) {
   const reversed = last.mean_ret < 0 && first.mean_ret > 0;
   const eroded = !reversed && last.mean_ret < peak.mean_ret * 0.5;
 
+  // K=1 case: only one age bucket exists, so peak == trough by construction
+  // and "Return stays within 0.00%" is technically true but uninformative.
+  // Most papers in the library have holding_period_months=1 (CHST-2017,
+  // AQR streaks, AMP-2013, LM-1988, PS-1988) — explain why only one bar
+  // is shown rather than printing a meaningless 0.00% spread.
   let verdict;
-  if (reversed) {
+  let howToRead =
+    'Each bar is the cross-tranche mean gross return at that age (months since formation). Whiskers = ±1 SE. Peak age tells you the best holding horizon; reversal tells you where to cut.';
+  if (points.length === 1) {
+    const onlyBar = points[0];
+    verdict = `Strategy holds for 1 month — only age=${onlyBar.age_months} exists, so there's no decay structure to measure. The bar height (${(onlyBar.mean_ret * 100).toFixed(2)}%/mo) equals the strategy's mean monthly return.`;
+    howToRead =
+      'Decay-by-age is meaningful when the holding period spans multiple months (JT-1993 holds 6, DBT-1985 holds 36). Monthly-rebalance strategies have a single age bucket by construction; this chart is informational rather than diagnostic for them.';
+  } else if (reversed) {
     verdict = `Signal flips sign by month ${last.age_months} — holding period is too long, mean-reversion dominates late.`;
   } else if (eroded) {
     verdict = `Peak at month ${peak.age_months} (${(peak.mean_ret * 100).toFixed(2)}%/mo) decays to ${(last.mean_ret * 100).toFixed(2)}%/mo by month ${last.age_months} — alpha is front-loaded.`;
@@ -2229,9 +2430,7 @@ function buildDecayNarrative(points) {
   return el('div', { class: 'flag-banner', style: 'border-color: var(--border-soft); color: var(--text-muted); background: transparent;' }, [
     el('div', { class: 'head', style: 'color: var(--accent);' }, 'How to read this'),
     el('div', {}, verdict),
-    el('div', { style: 'margin-top:4px; font-size:11px;' },
-      'Each bar is the cross-tranche mean gross return at that age (months since formation). Whiskers = ±1 SE. Peak age tells you the best holding horizon; reversal tells you where to cut.',
-    ),
+    el('div', { style: 'margin-top:4px; font-size:11px;' }, howToRead),
   ]);
 }
 

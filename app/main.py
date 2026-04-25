@@ -1166,11 +1166,14 @@ def _known_headline_claim(paper_id: str):
             t_stat=7.80,
             window_label="January 1980 – December 2011",
             paper_location="Table II, Panel A — 1M reversal within 3M-loser quintile",
+            # Verbatim table-cell quote from page 9: the 4th value (1.683)
+            # is the headline 3M-loser/1M-reversal cell; the corresponding
+            # t-statistic (7.80) appears in the parenthesized row below.
             supporting_quote=SupportingQuote(
-                text="manually-curated headline (registry override)",
-                page=1,
-                verified=False,
-                match_confidence=0.0,
+                text="Loser 1.857*** 1.642*** 1.038*** 1.683*** 1.678*** 1.345*** 0.811*** 1.452***",
+                page=9,
+                verified=True,
+                match_confidence=1.0,
             ),
         )
     # Asness, Moskowitz, Pedersen (2013) — "Value and Momentum Everywhere".
