@@ -75,7 +75,20 @@ def estimate_capacity(
     )
     universe = universe_q.data
     signal_series = compute_signal(spec.signal, price_panel, formation, universe)
-    weights = form_portfolio(spec.portfolio, signal_series, mcap_at_formation=None)
+    # Capacity only needs the basket of HOLDINGS (which stocks we'd trade),
+    # not the actual weights. Value-weighting requires an mcap series we
+    # don't fetch here; equal-weighting picks the same bucket members and
+    # avoids the "value weighting requires a market-cap series" crash that
+    # would otherwise kill the whole battery for any value-weighted spec
+    # (e.g. Asness-Moskowitz-Pedersen 2013).
+    portfolio_for_holdings = (
+        spec.portfolio.model_copy(update={"weighting": "equal"})
+        if spec.portfolio.weighting == "value"
+        else spec.portfolio
+    )
+    weights = form_portfolio(
+        portfolio_for_holdings, signal_series, mcap_at_formation=None
+    )
     if not weights:
         return [_err_result("empty portfolio at most-recent formation date")]
 

@@ -107,47 +107,67 @@ def run_battery(
     cost_threshold: float | None = None
     lag_half_life: float | None = None
     capacity_aum: float | None = None
+    family_errors: list[str] = []
+
+    # Each family is wrapped in try/except so one family's failure (e.g.
+    # capacity hitting 'value weighting requires mcap series' on AMP-2013,
+    # or subperiod running out of data on long-K specs) doesn't kill the
+    # entire battery and leave the SPA without a Robustness tab. Failures
+    # are recorded in family_errors and surfaced as fragility_signals.
+    def _safe(family: str, fn):
+        try:
+            return fn()
+        except Exception as e:
+            family_errors.append(f"{family}: {type(e).__name__}: {e}")
+            return None
 
     if "lag" in selected:
-        lag_results = run_lag_sweep(spec, store)
-        all_tests.extend(lag_results)
-        lag_half_life = compute_lag_half_life(lag_results)
+        lag_results = _safe("lag", lambda: run_lag_sweep(spec, store))
+        if lag_results:
+            all_tests.extend(lag_results)
+            lag_half_life = compute_lag_half_life(lag_results)
 
     if "costs" in selected:
-        cost_results = run_cost_sweep(spec, store)
-        all_tests.extend(cost_results)
-        cost_threshold = compute_cost_threshold_bps(cost_results)
+        cost_results = _safe("costs", lambda: run_cost_sweep(spec, store))
+        if cost_results:
+            all_tests.extend(cost_results)
+            cost_threshold = compute_cost_threshold_bps(cost_results)
 
     if "subperiod" in selected:
-        all_tests.extend(
-            run_subperiod_battery(
-                spec,
-                store,
-                transaction_cost_bps=transaction_cost_bps_for_subperiod_and_liquidity,
-            )
-        )
+        sub_results = _safe("subperiod", lambda: run_subperiod_battery(
+            spec, store,
+            transaction_cost_bps=transaction_cost_bps_for_subperiod_and_liquidity,
+        ))
+        if sub_results:
+            all_tests.extend(sub_results)
 
     if "liquidity" in selected:
-        all_tests.extend(
-            run_liquidity_sweep(
-                spec,
-                store,
-                transaction_cost_bps=transaction_cost_bps_for_subperiod_and_liquidity,
-            )
-        )
+        liq_results = _safe("liquidity", lambda: run_liquidity_sweep(
+            spec, store,
+            transaction_cost_bps=transaction_cost_bps_for_subperiod_and_liquidity,
+        ))
+        if liq_results:
+            all_tests.extend(liq_results)
 
     if "data_quality" in selected:
-        all_tests.extend(run_data_quality_check(baseline))
+        dq_results = _safe("data_quality", lambda: run_data_quality_check(baseline))
+        if dq_results:
+            all_tests.extend(dq_results)
 
     if "capacity" in selected:
-        cap_results = estimate_capacity(spec, store, baseline)
-        all_tests.extend(cap_results)
-        # First capacity result's headline_metric is the AUM in dollars.
-        if cap_results and cap_results[0].headline_metric > 0:
-            capacity_aum = cap_results[0].headline_metric
+        cap_results = _safe("capacity", lambda: estimate_capacity(spec, store, baseline))
+        if cap_results:
+            all_tests.extend(cap_results)
+            # First capacity result's headline_metric is the AUM in dollars.
+            if cap_results[0].headline_metric > 0:
+                capacity_aum = cap_results[0].headline_metric
 
     n_surviving = sum(1 for t in all_tests if t.surviving)
     fragility = _fragility_signals(all_tests, cost_threshold, lag_half_life)
+    if family_errors:
+        fragility = tuple(list(fragility) + [
+            f"battery family failed: {msg}" for msg in family_errors
+        ])
 
     return RobustnessScorecard(
         baseline_mean_return=baseline.mean_return,

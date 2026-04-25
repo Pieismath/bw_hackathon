@@ -138,7 +138,7 @@ See `DESIGN_NOTES.md` for non-obvious design decisions and bug postmortems, and 
 
 ## Roadmap (Phase 5+)
 
-Phases 3 and 4 already shipped: the D2 divergence diagnostician (LLM-proposed spec mutations validated by engine reruns) is live in `src/agents/validation/divergence_diagnostician.py`, and the six-family robustness battery (`lag`, `costs`, `subperiod`, `liquidity`, `data_quality`, `capacity`) plus the D3 robustness adversary are live in `src/robustness/` and `src/agents/validation/robustness_adversary.py`. Both are exposed via `/api/diagnose` and `/api/robustness` and rendered in the Diagnosis and Robustness tabs.
+Phases 3 and 4 already shipped: the D2 divergence diagnostician (LLM-proposed spec mutations validated by engine reruns) is live in `src/agents/validation/divergence_diagnostician.py`, and the six-family robustness battery (`lag`, `costs`, `subperiod`, `liquidity`, `data_quality`, `capacity`) plus the D3 robustness adversary are live in `src/robustness/` and `src/agents/validation/robustness_adversary.py`. Both are exposed via `/api/diagnose` and `/api/robustness` and rendered in the Diagnosis and Robustness tabs. Each battery family is wrapped in try/except so a single family's failure (e.g. capacity hitting a value-weighting edge case on AMP-2013) is recorded as a `fragility_signal` rather than killing the whole battery.
 
 Still planned, on top of the Phase 1–4 foundation:
 
