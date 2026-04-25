@@ -36,7 +36,7 @@ from src.robustness import run_battery
 from src.specs import PaperClaim, SupportingQuote
 
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/*PAST RETURN* jegadeesh-titman-1993.pdf")
 OUT = Path("outputs/demo_bundle_live.json")
 CACHE_ROOT = Path("data/cache/hf_datasets")
 
