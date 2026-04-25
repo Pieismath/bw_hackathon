@@ -242,6 +242,70 @@ def _engine_weighting_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, 
     return spec.model_copy(update={"portfolio": new_pf}), flag
 
 
+def _engine_lookback_clamp(
+    spec: ReplicationSpec, window_info: dict | None
+) -> tuple[ReplicationSpec, str | None]:
+    """Clamp `signal.lookback_months` if it's so large vs. the available data
+    panel that the engine would produce zero signal observations.
+
+    The variance_ratio signal needs `lookback_months + skip_months + 12`
+    months of history strictly before the first formation date can fire
+    (see `_compute_variance_ratio` in src/engine/signals.py). The
+    past_return signal needs `lookback_months + skip_months`. When the
+    window between the data panel's start and `spec.end_date` is shorter
+    than that, every formation returns an empty signal and the engine
+    raises `RuntimeError("no return observations produced")`.
+
+    We clamp `lookback_months` so the FIRST formation date inside the
+    spec window can fire — leaving at least `MIN_USABLE_OBS=24` months
+    of usable signal between burn-in completion and `end_date`. Floor at
+    24 (the variance_ratio validator minimum). Flag the substitution so
+    the UI banner discloses it. This guarantees the engine returns at
+    least *something* on long-lookback specs that A1 sometimes proposes
+    (e.g. AQR streaks with `lookback_months=360`).
+    """
+    sig = spec.signal
+    if sig.lookback_months is None or window_info is None:
+        return spec, None
+    if sig.kind not in ("past_return", "variance_ratio"):
+        return spec, None
+    from datetime import date as _date
+
+    panel_start_iso = window_info.get("data_panel_start")
+    if not panel_start_iso:
+        return spec, None
+    panel_start = _date.fromisoformat(panel_start_iso)
+    end_date = spec.end_date
+
+    available_months = (end_date.year - panel_start.year) * 12 + (
+        end_date.month - panel_start.month
+    )
+    extra_burnin = 12 if sig.kind == "variance_ratio" else 0
+    skip = sig.skip_months or 0
+    needed = sig.lookback_months + skip + extra_burnin
+    MIN_USABLE_OBS = 24
+    LB_FLOOR = 24
+
+    if available_months >= needed + MIN_USABLE_OBS:
+        return spec, None  # already fits
+
+    new_lookback = max(available_months - skip - extra_burnin - MIN_USABLE_OBS, LB_FLOOR)
+    if new_lookback >= sig.lookback_months:
+        return spec, None  # nothing to clamp
+    flag = (
+        f"engine fallback: signal.lookback_months={sig.lookback_months} "
+        f"({sig.kind}) requires {needed}m of pre-formation history but the "
+        f"data panel only spans {available_months}m before spec.end_date "
+        f"({end_date}). Clamped to {new_lookback}m so the engine produces "
+        f"≥{MIN_USABLE_OBS} signal observations. The signal definition is "
+        f"the same; the lookback window is shorter (noisier estimate) — "
+        f"treat the headline number as concept-faithful, not parameter-"
+        f"faithful to the paper."
+    )
+    new_signal = sig.model_copy(update={"lookback_months": new_lookback})
+    return spec.model_copy(update={"signal": new_signal}), flag
+
+
 def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None]:
     """If `signal.kind` is one the engine can't run today, substitute the
     closest structured kind that lets the pipeline complete.
@@ -413,6 +477,143 @@ def _clip_spec_to_data_window(spec: ReplicationSpec) -> tuple[ReplicationSpec, s
     )
 
 
+def _build_store_for_spec(spec: ReplicationSpec):
+    """Choose the data store implementation based on `spec.universe.name`.
+
+    AQR-style factor papers (variance_ratio + factor universe) need the
+    Ken French factor library, which goes back to 1926-07 and has no
+    survivorship bias. Stock-level papers stay on defeatbeta_yahoo.
+
+    Returns (store, store_kind) where store_kind is "ken_french_factors"
+    or "defeatbeta" so callers can adjust window-clip ranges and error
+    messages. Raises HTTPException via the caller's try/except if the
+    requested data isn't available locally.
+    """
+    from src.factor_compare.store import (
+        KEN_FRENCH_UNIVERSE_NAME,
+        KenFrenchFactorStore,
+    )
+    if spec.universe.name == KEN_FRENCH_UNIVERSE_NAME:
+        return KenFrenchFactorStore(), "ken_french_factors"
+    from src.data import DefeatBetaYahooSource, PointInTimeDataStore
+    cache_root = Path("data/cache/hf_datasets")
+    if not cache_root.exists():
+        raise FileNotFoundError(
+            "parquet data cache not found at data/cache/hf_datasets/"
+        )
+    src_ = DefeatBetaYahooSource(cache_root=cache_root)
+    store = PointInTimeDataStore(
+        sources={"defeatbeta_yahoo": src_},
+        cache_dir=Path("data/cache/query_cache"),
+    )
+    return store, "defeatbeta"
+
+
+def _clip_spec_for_kf(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None, dict | None]:
+    """Window-clip variant for ken_french_factors universes. The KF panel
+    starts 1963-07 (FF5 inception — RMW/CMA need it) and runs to the
+    present, so most paper windows fit. We still clip when end_date
+    exceeds the latest available factor data.
+    """
+    from datetime import date as _date
+    # Inception of the joint 6-factor panel: FF5 RMW/CMA daily start
+    # 1963-07-01. Mom and FF3 go back further but the rectangular panel
+    # is bound by the latest-starting factor.
+    data_min = _date(1963, 7, 31)
+    data_max = _date.today()
+    orig_start, orig_end = spec.start_date, spec.end_date
+    new_start = max(orig_start, data_min)
+    new_end = min(orig_end, data_max)
+    window_info = {
+        "paper_start": orig_start.isoformat(),
+        "paper_end": orig_end.isoformat(),
+        "data_panel_start": data_min.isoformat(),
+        "data_panel_end": data_max.isoformat(),
+        "engine_start": new_start.isoformat(),
+        "engine_end": new_end.isoformat(),
+        "substituted": False,
+        "clipped": new_start != orig_start or new_end != orig_end,
+        "overlap_kind": "in_range" if new_start == orig_start and new_end == orig_end else "partial_overlap_clipped",
+        "message": "",
+    }
+    if new_start >= new_end:
+        # Paper window entirely outside KF panel — substitute the full panel.
+        window_info.update(
+            engine_start=data_min.isoformat(),
+            engine_end=data_max.isoformat(),
+            substituted=True,
+            overlap_kind="no_overlap_post_publication_oos",
+            message=(
+                f"original spec window {orig_start} → {orig_end} does not "
+                f"overlap KF factor panel {data_min} → {data_max}; "
+                f"substituting full panel"
+            ),
+        )
+        return (
+            spec.model_copy(update={"start_date": data_min, "end_date": data_max}),
+            window_info["message"],
+            window_info,
+        )
+    if not window_info["clipped"]:
+        return spec, None, window_info
+    note = (
+        f"clipped spec window from {orig_start} → {orig_end} to "
+        f"{new_start} → {new_end} (KF factor panel: {data_min} → {data_max})"
+    )
+    window_info["message"] = note
+    return (
+        spec.model_copy(update={"start_date": new_start, "end_date": new_end}),
+        note,
+        window_info,
+    )
+
+
+def _prepare_spec_window(spec: ReplicationSpec, store_kind: str) -> tuple[ReplicationSpec, str | None, dict | None]:
+    """Dispatch to the right window-clip helper for the chosen store."""
+    if store_kind == "ken_french_factors":
+        return _clip_spec_for_kf(spec)
+    return _clip_spec_to_data_window(spec)
+
+
+def _coerce_portfolio_for_factor_universe(spec: ReplicationSpec) -> tuple[ReplicationSpec, str | None]:
+    """The Ken French factor universe has only 6 names — pd.qcut can't
+    form quintiles or deciles on a 6-element cross-section. Coerce the
+    portfolio to a tercile sort (n_buckets=3) when the spec targets the
+    KF universe but A1 / the dials chose a larger bucket count.
+
+    Equal weighting is also enforced because factor portfolios don't
+    have market caps; value-weighting them is undefined. The KF store
+    will raise on get_market_cap_panel anyway, but we coerce here so
+    the failure mode is a flag rather than an exception.
+    """
+    if spec.universe.name != "ken_french_factors":
+        return spec, None
+    p = spec.portfolio
+    changes: list[str] = []
+    new_p = p
+    if p.n_buckets > 3:
+        new_p = new_p.model_copy(update={
+            "n_buckets": 3,
+            "construction": "tercile",
+            "long_bucket": 3,
+            "short_bucket": 1 if p.long_short else None,
+        })
+        changes.append(f"n_buckets {p.n_buckets} → 3 (tercile)")
+    if p.weighting == "value":
+        new_p = new_p.model_copy(update={"weighting": "equal"})
+        changes.append("weighting value → equal (factor portfolios have no market cap)")
+    if not changes:
+        return spec, None
+    flag = (
+        "ken_french_factors universe has 6 names; portfolio coerced — "
+        + "; ".join(changes)
+        + ". Honest framing: AQR sorts 153 JKP factors into terciles (~50 "
+        "per bucket); we sort 6 KF factors into terciles (2 per bucket). "
+        "Concept-faithful, statistical-power-faithful is not."
+    )
+    return spec.model_copy(update={"portfolio": new_p}), flag
+
+
 class BacktestBody(BaseModel):
     spec: dict
     transaction_cost_bps: float = 0.0
@@ -427,7 +628,6 @@ def backtest(body: BacktestBody):
     """
     try:
         from pydantic import ValidationError
-        from src.data import DefeatBetaYahooSource, PointInTimeDataStore
         from src.engine import run_backtest
 
         try:
@@ -441,34 +641,34 @@ def backtest(body: BacktestBody):
                 },
             )
 
-        cache_root = Path("data/cache/hf_datasets")
-        if not cache_root.exists():
+        try:
+            store, store_kind = _build_store_for_spec(spec)
+        except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
                 content={
-                    "error": "parquet data cache not found at data/cache/hf_datasets/",
+                    "error": str(e),
                     "hint": "Run scripts/pull_defeatbeta.py to populate it, or use /api/demo.",
                 },
             )
 
-        src_ = DefeatBetaYahooSource(cache_root=cache_root)
-        store = PointInTimeDataStore(
-            sources={"defeatbeta_yahoo": src_},
-            cache_dir=Path("data/cache/query_cache"),
-        )
-        spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
         spec, kind_fallback_msg = _engine_kind_fallback(spec)
+        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
+        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
         result = run_backtest(spec, store, transaction_cost_bps=body.transaction_cost_bps)
         result = _flag_window_substitution(result, window_info)
-        if kind_fallback_msg:
-            flags = list(result.data_quality_flags) + [kind_fallback_msg]
+        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
+        if extra_flags:
+            flags = list(result.data_quality_flags) + extra_flags
             result = result.model_copy(update={"data_quality_flags": tuple(flags)})
-        src_.close()
+        store.close()
         return _sanitize_for_json({
             "backtest": result.model_dump(mode="json"),
             "clip_note": clip_note,
             "window_info": window_info,
             "kind_fallback": kind_fallback_msg,
+            "store_kind": store_kind,
         })
     except Exception as e:
         traceback.print_exc()
@@ -513,30 +713,29 @@ def robustness(body: RobustnessBody):
                 },
             )
 
-        cache_root = Path("data/cache/hf_datasets")
-        if not cache_root.exists():
+        try:
+            store, store_kind = _build_store_for_spec(spec)
+        except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
                 content={
-                    "error": "parquet data cache not found at data/cache/hf_datasets/",
+                    "error": str(e),
                     "hint": "Run scripts/pull_defeatbeta.py to populate it, or use /api/demo.",
                 },
             )
 
-        src_ = DefeatBetaYahooSource(cache_root=cache_root)
-        store = PointInTimeDataStore(
-            sources={"defeatbeta_yahoo": src_},
-            cache_dir=Path("data/cache/query_cache"),
-        )
-        spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
         spec, kind_fallback_msg = _engine_kind_fallback(spec)
+        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
+        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
         scorecard = run_battery(spec, store, families=body.families)
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
         baseline = _flag_window_substitution(baseline, window_info)
-        if kind_fallback_msg:
-            flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
+        if extra_flags:
+            flags = list(baseline.data_quality_flags) + extra_flags
             baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
         # D3 needs a PaperClaim for context. If the caller didn't supply one
         # (the body schema doesn't model it), fabricate a minimal placeholder
@@ -573,7 +772,7 @@ def robustness(body: RobustnessBody):
                     continue
                 judgment_error = f"D3 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        src_.close()
+        store.close()
         return _sanitize_for_json({
             "scorecard": scorecard.model_dump(mode="json"),
             "judgment": judgment.model_dump(mode="json") if judgment else None,
@@ -581,6 +780,7 @@ def robustness(body: RobustnessBody):
             "clip_note": clip_note,
             "window_info": window_info,
             "kind_fallback": kind_fallback_msg,
+            "store_kind": store_kind,
         })
     except BaseException as e:
         traceback.print_exc()
@@ -681,29 +881,28 @@ def diagnose_endpoint(body: DiagnoseBody):
                 },
             )
 
-        cache_root = Path("data/cache/hf_datasets")
-        if not cache_root.exists():
+        try:
+            store, store_kind = _build_store_for_spec(spec)
+        except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
                 content={
-                    "error": "parquet data cache not found at data/cache/hf_datasets/",
+                    "error": str(e),
                     "hint": "Run scripts/pull_defeatbeta.py to populate it, or use /api/demo.",
                 },
             )
 
-        src_ = DefeatBetaYahooSource(cache_root=cache_root)
-        store = PointInTimeDataStore(
-            sources={"defeatbeta_yahoo": src_},
-            cache_dir=Path("data/cache/query_cache"),
-        )
-        spec, clip_note, window_info = _clip_spec_to_data_window(spec)
+        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
         spec, kind_fallback_msg = _engine_kind_fallback(spec)
+        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
+        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
         baseline = run_backtest_cached(
             spec, store, transaction_cost_bps=body.transaction_cost_bps
         )
         baseline = _flag_window_substitution(baseline, window_info)
-        if kind_fallback_msg:
-            flags = list(baseline.data_quality_flags) + [kind_fallback_msg]
+        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
+        if extra_flags:
+            flags = list(baseline.data_quality_flags) + extra_flags
             baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
         claim = PaperClaim(
             claim_id="caller_supplied_headline",
@@ -749,7 +948,7 @@ def diagnose_endpoint(body: DiagnoseBody):
                     continue
                 diagnosis_error = f"D2 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        src_.close()
+        store.close()
         if diagnosis is None:
             return _sanitize_for_json({
                 "diagnosis": None,
@@ -886,27 +1085,38 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         _set_stage(job_id, "b", "done")
         _set_partial(job_id, bundle)
 
-        # Substitute / clip the spec window to the parquet panel — same logic
-        # as /api/backtest, so any paper (JT 1965-1989, Quantformer 2020-2023,
-        # …) gets a runnable engine window with a data_quality_flag.
-        clipped, _clip_note, window_info = _clip_spec_to_data_window(spec_with_critique)
+        # Dispatch to the right data store BEFORE clipping / fallbacks so
+        # KF-factor papers (universe.name='ken_french_factors') don't get
+        # wrongly routed through the defeatbeta panel — that mismatch was
+        # silently turning the AQR streaks pipeline into a no-op
+        # (panel start 1994-11 vs spec start 1973-01 ⇒ window substitution
+        # to 1995-2026, then signal lookup against the wrong universe ⇒
+        # zero return observations).
+        store, store_kind = _build_store_for_spec(spec_with_critique)
+        clipped, _clip_note, window_info = _prepare_spec_window(
+            spec_with_critique, store_kind
+        )
         bundle["window_info"] = window_info
         # Substitute signal.kind / portfolio.weighting if the engine can't run
         # them (e.g. 'custom' / 'signal_weighted') so the rest of the pipeline
         # (battery, D2, D3) still produces output the SPA can render. The
         # structured-proxy substitution(s) are flagged below.
         clipped, kind_fallback_msg = _engine_kind_fallback(clipped)
+        clipped, lookback_clamp_msg = _engine_lookback_clamp(clipped, window_info)
         clipped, weighting_fallback_msg = _engine_weighting_fallback(clipped)
-        src = DefeatBetaYahooSource(cache_root=Path("data/cache/hf_datasets"))
-        store = PointInTimeDataStore(
-            sources={"defeatbeta_yahoo": src},
-            cache_dir=Path("data/cache/query_cache"),
-        )
+        clipped, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(clipped)
+        # Track the store for finally-block close (only DefeatBeta needs it)
+        src = getattr(store, "_defeatbeta_src", None)
         try:
             _set_stage(job_id, "engine", "active")
             baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
             baseline = _flag_window_substitution(baseline, window_info)
-            extra_flags = [m for m in (kind_fallback_msg, weighting_fallback_msg) if m]
+            extra_flags = [
+                m for m in (
+                    kind_fallback_msg, lookback_clamp_msg,
+                    weighting_fallback_msg, portfolio_coercion_msg,
+                ) if m
+            ]
             if extra_flags:
                 flags = list(baseline.data_quality_flags) + extra_flags
                 baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
@@ -957,7 +1167,14 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_stage(job_id, "d3", "done")
             _set_partial(job_id, bundle)
         finally:
-            src.close()
+            # Only the defeatbeta-backed PointInTimeDataStore needs explicit
+            # close (parquet handles); KenFrenchFactorStore is in-memory.
+            close = getattr(store, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
 
         _finish_job(job_id, result=_sanitize_for_json(bundle))
 

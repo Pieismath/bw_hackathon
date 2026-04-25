@@ -99,7 +99,13 @@ def run_backtest(
         mcap_provenance = mcap_q.provenance
 
     data_quality_flags: list[str] = []
-    if spec.signal.kind == "variance_ratio":
+    # Universe-aware flags: the cross-section caveat for variance_ratio
+    # only applies when we're sorting individual stocks. When the spec
+    # targets the Ken French factor universe, the cross-section IS the
+    # right kind of object (factor portfolios, like AQR's), so the flag
+    # would be misleading.
+    is_stock_universe = spec.universe.name != "ken_french_factors"
+    if spec.signal.kind == "variance_ratio" and is_stock_universe:
         data_quality_flags.append(
             "variance_ratio computed on individual stocks. The AQR streaks "
             "paper sorts JKP factor portfolios (153 factors) by VR, not "
@@ -110,12 +116,21 @@ def run_backtest(
             "as concept-faithful, NOT as a like-for-like replication of the "
             "paper's portfolio."
         )
+    if spec.signal.kind == "variance_ratio" and not is_stock_universe:
+        data_quality_flags.append(
+            "variance_ratio computed on the Ken French 6-factor universe "
+            "(Mkt-RF, SMB, HML, RMW, CMA, Mom). AQR sorts 153 JKP factors "
+            "into terciles (~50 per bucket); we sort 6 factors into "
+            "terciles (2 per bucket). Concept-faithful, not statistical-"
+            "power-faithful. Window goes back to 1973 (FF5 inception "
+            "1963-07) and is survivorship-bias-free."
+        )
     if spec.portfolio.use_nyse_breakpoints:
         data_quality_flags.append(
             "NYSE breakpoints requested but exchange flags not available "
             "in defeatbeta_yahoo; falling back to all-universe breakpoints."
         )
-    if spec.universe.region == "US":
+    if spec.universe.region == "US" and is_stock_universe:
         data_quality_flags.append(
             "Yahoo-sourced universe excludes delisted names — survivorship bias."
         )

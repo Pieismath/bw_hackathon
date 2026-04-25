@@ -231,7 +231,7 @@ Short stable identifier, e.g. `"jegadeesh_titman_1993"`. No quote needed.
 The literal title. No quote needed.
 
 ### `universe` (`UniverseSpec`)
-- `name` — descriptive, e.g. `"us_common_nyse_amex_nasdaq"`
+- `name` — descriptive, e.g. `"us_common_nyse_amex_nasdaq"`. **Special value: `"ken_french_factors"`.** Use this exact string when the paper's cross-section is FACTOR PORTFOLIOS rather than individual stocks — the AQR (2024) "Hidden Value of Streaky Returns" paper sorts the JKP 153-factor zoo by variance ratio; Asness-Frazzini-Pedersen "Quality Minus Junk" trades a constructed factor; any paper that takes a published or constructed factor library as its universe and sorts factors (not stocks) belongs here. The engine routes `ken_french_factors` to a synthetic price panel built from the Ken French 6-factor library (Mkt-RF, SMB, HML, RMW, CMA, Mom) which goes back to 1973 and has no survivorship bias. Six factors is fewer than AQR's 153 but is the right CONCEPTUAL cross-section. Do NOT use `ken_french_factors` for stock-level papers (JT-1993, De Bondt-Thaler, anything sorting individual equities) — those belong on the default Yahoo stock universe.
 - `region` — one of `"US"`, `"global"`, `"developed"`, `"emerging"`, `"custom"`
 - `asset_class` — `"equity"` / `"bond"` / `"fx"` / `"commodity"` / `"macro"` / `"mixed"`
 - `include_filters` — tuple of human-readable filters, e.g. `("common_stock",)`

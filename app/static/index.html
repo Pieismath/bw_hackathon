@@ -156,6 +156,14 @@
             <div class="runconfig-group">
               <div class="runconfig-group-head">Universe</div>
               <div class="runconfig-grid">
+                <label class="dial dial-wide">
+                  <span class="dial-label">universe.name <span class="dial-help" title="Stock universe (defeatbeta_yahoo, post-1994, survivorship-biased) vs. Ken French 6-factor portfolio universe (1973+, no survivorship). Use ken_french_factors for AQR-style streakiness papers and any paper whose cross-section is factor portfolios rather than individual stocks.">?</span></span>
+                  <select id="dial-universe-name">
+                    <option value="">(use A1's value)</option>
+                    <option value="defeatbeta_all_equities">defeatbeta_all_equities (US stocks, 1994+)</option>
+                    <option value="ken_french_factors">ken_french_factors (KF 6-factor zoo, 1973+)</option>
+                  </select>
+                </label>
                 <label class="dial">
                   <span class="dial-label">universe.min_price <span class="dial-help" title="Excludes penny-stock noise; $5 is a common floor.">?</span></span>
                   <input type="number" id="dial-min-price" min="0" step="0.5" value="5" />

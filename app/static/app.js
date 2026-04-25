@@ -1380,10 +1380,17 @@ function renderBacktest(bt, paperClaim) {
     root.appendChild(banner);
   }
   if (!proxyMode && noTarget) {
+    const statOnly = detectStatisticalOnlyPaper(state.bundle);
     const banner = el('div', { class: 'flag-banner sev-warn' });
-    banner.appendChild(el('div', { class: 'head' }, 'No comparison target — verdict is vs zero, not vs the paper'));
-    banner.appendChild(el('div', {},
-      'A1 did not extract a usable headline claim and no manual override was supplied. The implementable-alpha verdict, gap-attribution narrative, and D2 diagnosis cannot be computed because there\'s nothing to compare against. Enter the paper\'s monthly long-short return and t-stat in the Run config panel\'s "Paper headline" inputs and re-run.'));
+    if (statOnly) {
+      banner.appendChild(el('div', { class: 'head' }, 'Statistical-test paper — no tradeable headline claim'));
+      banner.appendChild(el('div', {},
+        'This paper reports variance-ratio statistics (e.g. VR(k) testing for mean reversion vs. random walk), not a tradeable monthly long-short return. The replication runs the implicit contrarian/momentum strategy implied by signal.direction; the measured return is vs. zero (the random-walk null), NOT vs. a paper-quoted number. Examples: Lo-MacKinlay 1988, Poterba-Summers 1988. The "paper monthly L/S return" override input doesn\'t apply — the paper doesn\'t make that claim.'));
+    } else {
+      banner.appendChild(el('div', { class: 'head' }, 'No comparison target — verdict is vs zero, not vs the paper'));
+      banner.appendChild(el('div', {},
+        'A1 did not extract a usable headline claim and no manual override was supplied. The implementable-alpha verdict, gap-attribution narrative, and D2 diagnosis cannot be computed because there\'s nothing to compare against. Enter the paper\'s monthly long-short return and t-stat in the Run config panel\'s "Paper headline" inputs and re-run.'));
+    }
     root.appendChild(banner);
   }
 
@@ -3358,9 +3365,12 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   // Confidence + signal-type subline. When PROXY_ONLY or NO_TARGET, the
   // signal_type field is meaningless — D3 was judging the wrong thing.
   const cf = $('#vs-confidence');
+  const statOnlyVS = detectStatisticalOnlyPaper(state.bundle);
   if (cf) {
     if (proxyMode) {
       cf.textContent = 'engine ran a structured proxy — NOT the paper\'s signal';
+    } else if (noTarget && statOnlyVS) {
+      cf.textContent = 'statistical-test paper (variance-ratio) — paper has no tradeable L/S claim';
     } else if (noTarget) {
       cf.textContent = 'no paper headline target supplied — verdict is vs zero, not vs paper';
     } else {
@@ -3383,6 +3393,8 @@ function refreshVerdictStripFromLive(robustnessPayload, bundle) {
   let summary;
   if (proxyMode) {
     summary = 'The engine could not run the paper\'s actual signal (e.g. variance ratio, learned model, fundamental ratio). It substituted a 12-month past-return proxy and ran the full backtest + robustness battery on that proxy. Every number on this dashboard is a verdict on the proxy, not on the paper. To get a real replication, implement the paper\'s signal in src/engine/signals.py and re-run.';
+  } else if (noTarget && statOnlyVS) {
+    summary = 'This is a statistical-test paper (variance ratio / autocorrelation against the random-walk null) — Lo-MacKinlay 1988, Poterba-Summers 1988, and similar. The paper does NOT report a tradeable monthly long-short return; it reports VR(k) statistics. The implementable-alpha number is the engine\'s alpha for the IMPLICIT contrarian/momentum strategy implied by signal.direction, measured vs zero (the random-walk null). The "Paper headline" override input does not apply — entering a number would fabricate a claim the paper does not make.';
   } else if (noTarget) {
     summary = 'The paper\'s headline number was not supplied (A1 could not extract one and no manual override was entered in the Run config panel). The implementable-alpha number is the engine\'s alpha vs zero, NOT vs the paper\'s claim. D2 cannot run without a comparison target. Enter the paper\'s monthly long-short return and t-stat in the override inputs and re-run.';
   } else {
@@ -3693,6 +3705,20 @@ function detectNoTarget(claim) {
   // legacy demo bundle can still surface them).
   if (claim.monthly_return === 0 && claim.tstat != null && claim.tstat !== 0) return true;
   return false;
+}
+
+// Statistical-test papers (Lo-MacKinlay 1988, Poterba-Summers 1988, …)
+// report variance-ratio / autocorrelation statistics, not a tradeable
+// monthly long-short return. When A1 returns headline_claim=null AND the
+// extracted spec uses signal.kind='variance_ratio', the user CAN'T enter a
+// "paper monthly L/S return" override — the paper genuinely doesn't have
+// one. Surface that explicitly instead of telling the user to enter a
+// number that doesn't exist.
+function detectStatisticalOnlyPaper(bundle) {
+  try {
+    const kind = bundle?.verified_spec?.spec?.signal?.kind;
+    return kind === 'variance_ratio';
+  } catch (_) { return false; }
 }
 
 function setCostBps(bps, originator) {
