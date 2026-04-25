@@ -139,7 +139,6 @@
       <header class="page-head">
         <div>
           <h1>Briefing Overview</h1>
-          <p class="sub">Submit a paper to run methodology extraction, citation verification, replication, and the stress-test battery — or load the demonstration briefing.</p>
         </div>
         <div class="head-meta">
           <span class="meta-pill" id="paper-title">No paper loaded</span>
@@ -351,7 +350,10 @@
               </div>
             </div>
           </div>
-          <div class="papers-list" id="papers-list"></div>
+          <!-- Cached papers list — hidden from the UI to keep the Overview clean.
+               The DOM node stays so refreshPapers() can write to it without
+               null-deref'ing; nothing actually renders on screen. -->
+          <div class="papers-list" id="papers-list" style="display:none;"></div>
         </div>
 
         <!-- Live metrics -->
