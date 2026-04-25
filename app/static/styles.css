@@ -695,6 +695,32 @@ table.data td.neg { color: var(--danger); }
   height: 160px;
   display: block;
 }
+.decay-flat {
+  padding: 24px 8px 14px;
+  text-align: center;
+}
+.decay-flat-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.decay-flat-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+/* Post-formation decay — Backtest tab. Stand-alone SVG chart; takes the
+ * width of its spec-section parent. Height is explicit so the bars/labels
+ * don't stretch vertically on tall canvases. */
+.decay-chart {
+  height: 200px;
+  display: block;
+}
 
 /* Diagnosis gap-closure waterfall */
 .waterfall-wrap {
