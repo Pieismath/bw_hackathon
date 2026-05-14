@@ -10,9 +10,52 @@ from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
+from datetime import date as _Date
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from src.specs import ProvenanceRecord, SourceTier
+
+if TYPE_CHECKING:
+    from src.data.store import FundamentalsSnapshot
+
+
+@runtime_checkable
+class FundamentalDataSource(Protocol):
+    """Portable contract for any data source that supplies point-in-time fundamentals.
+
+    ``PointInTimeDataStore`` in ``src/data/store.py`` satisfies this Protocol
+    today. A future Bridgewater-internal data source (or any other vendor)
+    can satisfy it without inheriting from ``BaseDataSource`` — the engine's
+    ``fundamental_ratio`` signal computation depends only on this Protocol.
+
+    The point of capturing this as a Protocol (and not, say, a hard
+    dependency on PointInTimeDataStore) is that the engine layer doesn't
+    care WHERE fundamentals come from — only that the caller can answer
+    "what was firm X's gross_profitability on as_of_date Y" with
+    point-in-time-correct values. Bridgewater's internal data store
+    likely has richer coverage (broader history, more line items, true
+    filing dates instead of a 90-day proxy) — implementing this Protocol
+    plugs it in unchanged.
+    """
+
+    def get_fundamentals(
+        self,
+        ticker: str,
+        as_of_date: _Date,
+        period_type: str = "annual",
+        filing_lag_days: int | None = None,
+    ) -> "FundamentalsSnapshot | None":
+        """Return the most-recent fundamentals filing for ``ticker`` whose
+        proxy filing date is ≤ ``as_of_date``, or ``None`` if no filing
+        exists within the source's coverage.
+
+        Implementations must respect ``as_of_date`` strictly (no peeking
+        forward). ``filing_lag_days`` is the proxy applied to period_end
+        to estimate the actual filing date; ``None`` defers to the source's
+        default (90 days for US 10-Q).
+        """
+        ...
 
 
 class SnapshotSelectionWarning(UserWarning):

@@ -28,6 +28,69 @@ OverallConfidence = Literal["high", "medium", "low"]
 ReturnConvention = Literal["arithmetic_monthly", "log_monthly", "arithmetic_daily"]
 
 
+SpecAdaptationKind = Literal[
+    "signal_kind_proxy_substitution",      # unsupported signal.kind → past_return proxy
+    "lookback_clamp",                      # signal.lookback_months clamped to fit data panel
+    "weighting_fallback",                  # portfolio.weighting='signal_weighted' → 'equal'
+    "portfolio_bucket_coercion",           # n_buckets coerced (e.g. quintile → tercile on 6-factor universe)
+    "engine_does_not_expose_per_leg",      # claim comparison requires per-leg returns the engine doesn't emit
+    "fundamentals_unavailable_in_window",  # fundamental_ratio spec outside fundamental data coverage
+    "unknown_fundamental_ratio",           # fundamental_ratio name not in registry; fell back to proxy
+    "out_of_sample_engine_window",         # paper window outside data panel; ran OOS
+    "window_clipped_to_panel",             # paper window partially clipped to data panel
+]
+
+
+class SpecAdaptation(BaseModel):
+    """Typed record of a substitution the engine made because the literal
+    spec was infeasible against the available data / engine capabilities.
+
+    Replaces the earlier string-flag idiom (e.g. ``"engine fallback: signal.kind=..."``
+    appended to ``data_quality_flags``) that downstream consumers had to
+    grep. Each entry carries the field that was changed, the original
+    value, the substituted value, and a free-text reason.
+
+    A frontend like ``app/static/app.js``'s ``detectProxyMode`` becomes a
+    one-liner that checks the typed field instead of substring-matching
+    ``data_quality_flags`` for an English sentence.
+
+    String fields ``from_value`` / ``to_value`` are stringified
+    representations of arbitrary spec values (e.g. ``"variance_ratio"``,
+    ``"signal_weighted"``, ``"360"``, ``"None"``) — they're for display
+    and provenance, not for round-tripping back into a spec. The
+    machine-readable substitution is already in the spec itself; this
+    record exists to make the WHY honest in the report.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: SpecAdaptationKind
+    field_path: str = Field(
+        min_length=1,
+        max_length=200,
+        description=(
+            "Dotted path of the spec field that was substituted "
+            "(e.g. ``'signal.kind'``, ``'portfolio.weighting'``, "
+            "``'signal.lookback_months'``)."
+        ),
+    )
+    from_value: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Stringified original value, or None if the field was unset.",
+    )
+    to_value: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Stringified substituted value, or None if no replacement (e.g. for documentation-only adaptations).",
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=500,
+        description="Why the substitution was applied; surfaced in the UI banner.",
+    )
+
+
 class ReturnObservation(BaseModel):
     """One period's return, tagged with the rebalance cycle it belongs to.
 
@@ -130,6 +193,12 @@ class BacktestResult(BaseModel):
     decay_by_age: tuple[FormationDecayPoint, ...] = ()
     warnings: tuple[str, ...] = ()
     data_quality_flags: tuple[str, ...] = ()
+    # Typed prep-time substitutions (Phase E). Each SpecAdaptation captures
+    # one infeasibility the engine layer worked around (kind proxy,
+    # lookback clamp, OOS window substitution, etc.). Frontend / D2 / D3
+    # dispatch on these rather than substring-matching data_quality_flags.
+    # Empty when the spec ran verbatim with no substitutions.
+    spec_adaptations: tuple["SpecAdaptation", ...] = ()
     provenance: ProvenanceRecord
 
     @model_validator(mode="after")

@@ -28,7 +28,7 @@ from src.pdf.parser import parse_pdf
 from src.report import format_data_quality_flags, format_replication_gap_line
 from src.specs import PaperClaim, SupportingQuote
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 OUT = Path("outputs/jt_full_pipeline.json")
 
 # Paper's headline claim (JT 1993 Table I Panel A J=6 K=6 Buy-sell row).

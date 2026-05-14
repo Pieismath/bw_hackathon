@@ -1162,60 +1162,20 @@ async function refreshPapers() {
   }
 }
 
-// ---------- hardcoded paper-claim fallbacks ----------
-//
-// Some papers report their headline as a Sharpe ratio, regression alpha, or
-// cross-asset combo statistic rather than a clean monthly long-short return.
-// A1 returns headline_claim=None for those (correctly — fabricating a number
-// would be worse), which leaves the verdict strip on `NO PAPER TARGET` and
-// the gap-attribution columns empty.
-//
-// For papers where we have a verified-from-the-PDF monthly L/S number that
-// A1 just couldn't shape, this map injects it at bundle-apply time. Each
-// entry must cite the exact table / passage so the value is auditable.
-//
-// Schema: { monthly_return (decimal), tstat, window, paper_location, metric }
-const PAPER_CLAIM_FALLBACKS = {
-  // Asness, Moskowitz, Pedersen 2013 — "Value and Momentum Everywhere".
-  // Paper headline is the global all-asset combo Sharpe ratio (~1.6+);
-  // A1 cannot produce a single (monthly_return, t_stat) from that. Table 1
-  // does report a US stocks 50/50 Value+Momentum combo with mean monthly
-  // excess return of ~0.81% at t ≈ 4.84 over Jan 1972 – Jul 2011, which is
-  // the closest stocks-only L/S claim that maps onto the engine's universe.
-  asness_moskowitz_pedersen_2013_value_and_momentum_everywhere: {
-    monthly_return: 0.0081,
-    tstat: 4.84,
-    window: 'Jan 1972 – Jul 2011',
-    paper_location: 'Table 1, US Stocks Value+Momentum 50/50 combo (full sample)',
-    metric: 'monthly long-short return',
-    overridden_by_user: false,
-    hardcoded_fallback: true,
-  },
-};
-
 // ---------- bundle render ----------
+//
+// Phase F (dehardcode refactor): the JS-side `PAPER_CLAIM_FALLBACKS` map
+// has been DELETED. AMP-2013's hardcoded (0.0081/mo, t=4.84) entry was a
+// frontend workaround for A1's inability to recover Table I (the PDF
+// stores it with mirrored character order). The replacement mechanism is
+// PaperExtractionOverride server-side — bound to a verbatim quote
+// checksum from a non-mirrored span of the PDF, validated by the
+// extraction_verifier before the bundle leaves the backend. The frontend
+// no longer needs paper-id-keyed fallbacks; everything flows through
+// `bundle.paper_claim.kind` and the variant-aware dispatch helpers.
 
 function applyBundle(bundle) {
   state.bundle = bundle;
-  // Inject a verified hardcoded paper claim for papers whose headline isn't
-  // in the (monthly_return, t_stat) shape A1 requires. Runs before any tab
-  // render so renderVerdictStrip / renderBacktest / renderDiagnosis all see
-  // it and the comparison table populates instead of NO PAPER TARGET.
-  const fallback = bundle.paper_id && PAPER_CLAIM_FALLBACKS[bundle.paper_id];
-  if (fallback && !bundle.paper_claim) {
-    bundle.paper_claim = { ...fallback };
-    if (bundle.verified_spec && bundle.verified_spec.spec && !bundle.verified_spec.spec.headline_claim) {
-      bundle.verified_spec.spec.headline_claim = {
-        metric: fallback.metric,
-        monthly_return: fallback.monthly_return,
-        t_stat: fallback.tstat,
-        window_label: fallback.window,
-        paper_location: fallback.paper_location,
-        supporting_quote: null,
-      };
-    }
-    log('SYS', `Paper headline hardcoded for ${bundle.paper_id} (A1 returned no claim — paper reports Sharpe-style headline; using ${(fallback.monthly_return * 100).toFixed(2)}%/mo, t=${fallback.tstat.toFixed(2)} from ${fallback.paper_location}).`, 'sys');
-  }
   // Pristine A1 output drives both the dial form seeding and the override diff.
   // Take a deep clone so further dial reads don't mutate the bundle.
   if (bundle.verified_spec && bundle.verified_spec.spec) {
@@ -2445,20 +2405,19 @@ const REGIMES = [
 // Regime markers (Dot-com reversal, 2009 momentum crash) only make sense
 // for cross-sectional momentum strategies — they're meaningless or
 // misleading on reversal, value, factor-of-factors, or non-equity papers.
-// Allowlist of paper_id values that should show the markers.
-const MOMENTUM_PAPER_IDS = new Set([
-  'jegadeesh_titman_1993',
-  'asness_moskowitz_pedersen_2013',
-  'carhart_1997',
-  'rouwenhorst_1998',
-  'novy_marx_2012',
-  'hong_lim_stein_2000',
-  'moskowitz_grinblatt_1999',
-]);
-
+// Phase F (dehardcode refactor): derive from spec metadata (signal.kind +
+// direction + asset_class) instead of the old paper-id allowlist. Any
+// equity past-return long-high spec is structurally a momentum strategy
+// and gets the markers; reversal (long_low), variance-ratio, or non-equity
+// specs don't.
 function shouldShowRegimes(bundle) {
-  const pid = bundle?.verified_spec?.spec?.paper_id ?? bundle?.paper_id;
-  return pid != null && MOMENTUM_PAPER_IDS.has(pid);
+  const spec = bundle?.verified_spec?.spec;
+  if (!spec) return false;
+  const sig = spec.signal || {};
+  const uni = spec.universe || {};
+  return sig.kind === 'past_return'
+      && sig.direction === 'long_high'
+      && uni.asset_class === 'equity';
 }
 
 function svgEl(tag, attrs = {}) {
@@ -2793,14 +2752,18 @@ function renderRobustness(robustness) {
         el('span', { class: 'lbl' }, 'Implementable Alpha (per month)'),
         el('span', { class: 'val ' + (judgment.implementable_alpha >= 0 ? 'pos' : 'neg') }, fmtPct(judgment.implementable_alpha, 3)),
       ]),
-      el('p', { class: 'verdict-summary' }, judgment.summary),
-      el('div', { class: 'quote' }, [
-        el('span', { class: 'meta' }, 'Implementable Alpha — Basis'),
-        document.createTextNode(judgment.implementable_alpha_basis),
-      ]),
-      el('div', { class: 'quote' }, [
-        el('span', { class: 'meta' }, `Gap Attribution · ${gapAttributionLabel(judgment.gap_attribution)}`),
-        document.createTextNode(judgment.gap_attribution_evidence),
+      el('p', { class: 'verdict-final' },
+        el('strong', {},
+          `Final attribution — ${gapAttributionLabel(judgment.gap_attribution)}: ${firstSentence(judgment.gap_attribution_evidence)}`
+        )
+      ),
+      el('div', { class: 'verdict-detail' }, [
+        el('div', { class: 'verdict-detail-eyebrow' }, 'Detail · supporting analysis'),
+        el('p', { class: 'verdict-summary' }, judgment.summary),
+        el('div', { class: 'quote' }, [
+          el('span', { class: 'meta' }, 'Implementable Alpha — Basis'),
+          document.createTextNode(judgment.implementable_alpha_basis),
+        ]),
       ]),
     ]);
     root.appendChild(verdict);
@@ -2978,6 +2941,29 @@ function gapAttributionLabel(g) {
     post_publication_decay: 'Post-publication decay',
     unexplained: 'Unexplained',
   }[g] || g;
+}
+
+// Distill D3's multi-sentence `gap_attribution_evidence` paragraph down to its
+// leading clause so the verdict card's final-attribution line reads as a
+// single conclusion sentence. Boundary requirements (each one earned by an
+// observed mis-cut):
+//   1. The boundary char must be `.` or `;`.
+//   2. It must be followed by whitespace AND an uppercase letter (or end
+//      of string). The uppercase rule filters out abbreviations: "vs. our
+//      individual-stock implementation" no longer cuts at "vs." because
+//      "our" is lowercase. Same for "e.g.", "i.e.", "et al.", and
+//      mid-sentence line wraps where a wrapped fragment continues with a
+//      lowercase token or a digit.
+//   3. Whitespace between the boundary and next char protects decimal
+//      numbers ("(0.958%/mo)", "t=1.84") which have no following space.
+// Falls back to the full text when no clean boundary exists (single-clause
+// inputs render as-is rather than getting truncated).
+function firstSentence(text) {
+  if (!text) return '';
+  const s = String(text);
+  const m = s.match(/^.+?[.;](?=\s+[A-Z]|\s*$)/);
+  const out = (m ? m[0] : s).trim().replace(/[.;,\s]+$/, '');
+  return out ? out + '.' : '';
 }
 
 function formatSwept(obj) {
@@ -3218,23 +3204,21 @@ function renderDiagnosis(payload, paperClaim) {
     root.appendChild(diagnosisWaitingState(paperClaim));
     return;
   }
-  // Detect non-tradeable-claim papers (Poterba-Summers, Lo-MacKinlay, AQR
-  // streaks). When the claim is a placeholder OR the paper_id matches a
-  // known no-tradeable-target keyword, render the clean explainer instead
-  // of the confused experiment log — even when D2 already ran (e.g. cached
-  // diagnoses from before the backend skip was added).
+  // Phase F (dehardcode refactor): detect non-tradeable-claim papers via
+  // the typed headline_claim.kind discriminator, not paper_id substrings.
+  // The bundle-root `paper_claim` carries `kind` (set by
+  // `_bundle_paper_claim` server-side) — variance_ratio_statistic,
+  // sharpe_ratio_difference, and statistical_test variants are NOT
+  // comparable to engine.mean_return so D2's gap-closure is mathematically
+  // ill-defined. Render the clean explainer regardless of whether D2
+  // already ran (e.g. cached diagnoses from before the backend skip).
   const placeholderClaim =
     !paperClaim ||
     paperClaim.monthly_return == null ||
     (paperClaim.monthly_return === 0 && (paperClaim.tstat == null || paperClaim.tstat === 0));
-  const NO_TARGET_KEYWORDS = [
-    'lo_mackinlay', 'mackinlay', 'random_walk',
-    'poterba_summers', 'mean_reversion',
-    'streaky_returns', 'streaks',
-    'variance_ratio_test', 'specification_test',
-  ];
-  const pid = (state.bundle?.verified_spec?.spec?.paper_id || state.bundle?.paper_id || '').toLowerCase();
-  const isNoTargetPaper = NO_TARGET_KEYWORDS.some((k) => pid.includes(k));
+  const isNoTargetPaper =
+    paperClaim &&
+    ['variance_ratio_statistic', 'sharpe_ratio_difference', 'statistical_test'].includes(paperClaim.kind);
   if (placeholderClaim || isNoTargetPaper) {
     root.appendChild(diagnosisNotApplicableState(paperClaim));
     return;
@@ -4535,33 +4519,36 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 }
 
-// Statistical-test papers (Lo-MacKinlay 1988, Poterba-Summers 1988, …)
-// report variance-ratio / autocorrelation statistics, not a tradeable
-// monthly long-short return. When A1 returns headline_claim=null AND the
-// extracted spec uses signal.kind='variance_ratio', the user CAN'T enter a
-// "paper monthly L/S return" override — the paper genuinely doesn't have
-// one. Surface that explicitly instead of telling the user to enter a
-// number that doesn't exist.
-function detectStatisticalOnlyPaper(bundle) {
-  try {
-    const kind = bundle?.verified_spec?.spec?.signal?.kind;
-    return kind === 'variance_ratio';
-  } catch (_) { return false; }
+// Phase F (dehardcode refactor): the two detect-* functions used to
+// dispatch on signal.kind / paper_id substring. They now dispatch on the
+// TYPED headline_claim.kind discriminator. The function names stay so the
+// many callsites in this file don't need rewriting; the bodies change.
+//
+//   detectStatisticalOnlyPaper(bundle) → headline_claim.kind is one of
+//     {variance_ratio_statistic, statistical_test} — the paper reports a
+//     statistic, not a tradeable L/S return.
+//
+//   detectAqrStreaksPaper(bundle) → headline_claim.kind === sharpe_ratio_difference
+//     — the paper reports a Sharpe spread between named buckets.
+//
+// Both functions resolve `headline_claim.kind` via the bundle-root
+// paper_claim shape FIRST (which is what /api/extract and the demo
+// fixture populate), then fall back to verified_spec.spec.headline_claim
+// for old bundles that pre-date the flat-paper_claim projection. No
+// paper_id matching anywhere.
+function _bundleHeadlineKind(bundle) {
+  return bundle?.paper_claim?.kind
+      ?? bundle?.verified_spec?.spec?.headline_claim?.kind
+      ?? null;
 }
 
-// AQR 2024 "Hidden Value of Streaky Returns" reports Sharpe-ratio differences
-// between top/bottom variance-ratio terciles, not a tradeable monthly long-short
-// return. The signal.kind=variance_ratio detector classifies it as
-// statistical-only, but the generic banner text ("VR(k) testing for mean
-// reversion vs. random walk") is the WRONG narrative for this paper — it's
-// not a random-walk-null test; it's a streakiness sort. Detect by paper_id
-// and rewrite the banner / verdict-strip subline accordingly.
+function detectStatisticalOnlyPaper(bundle) {
+  const k = _bundleHeadlineKind(bundle);
+  return k === 'variance_ratio_statistic' || k === 'statistical_test';
+}
+
 function detectAqrStreaksPaper(bundle) {
-  try {
-    const pid = (bundle?.paper_id || '').toLowerCase();
-    return pid.includes('aqr_2024') || pid.includes('streaky_returns')
-        || pid.includes('hidden_value_of_streaky');
-  } catch (_) { return false; }
+  return _bundleHeadlineKind(bundle) === 'sharpe_ratio_difference';
 }
 
 function setCostBps(bps, originator) {

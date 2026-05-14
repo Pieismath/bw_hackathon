@@ -88,13 +88,41 @@ When the paper reports multiple variants (e.g. JT's grid J ∈ {3,6,9,12} × K �
 
 Never emit multiple `ReplicationSpec` objects or enumerate variants in fields. Variant sweeping is downstream work for the robustness battery (D3) and divergence diagnostician (D2) — not A1's.
 
-### 8. Headline claim — REQUIRED. Extract the paper's reported number for the variant you chose
+### 8. Headline claim — REQUIRED. Choose the right variant for the paper's claim shape
 
-For the variant you selected in rule 7, populate `headline_claim` with the paper's reported number, its t-statistic if available, the sample window, the paper location, and a verbatim supporting quote that contains the number itself. This is what D2 (downstream) compares the engine's replication against — without it, D2 has nothing to attribute the gap to, and the demo's "paper says X, we got Y" diff is blank.
+For the variant you selected in rule 7, populate `headline_claim` with the paper's reported number. `headline_claim` is a **discriminated union**: pick the variant whose `kind` matches the paper's headline. There are six:
 
-This field is **required** for any empirical paper. Do not leave it null when the paper is empirical and reports any quantitative result for the headline variant — that is the most common A1 failure mode and breaks the pipeline silently.
+| Paper's headline is... | `kind` (variant) | Required value field(s) |
+|---|---|---|
+| A mean monthly long-short return for a single sort (the JT-style headline) | `"monthly_long_short_return"` | `monthly_return` (decimal/month) |
+| A monthly L/S return sourced from a nested-conditional-sort cell ("inner sort within outer-sort bucket X") | `"nested_conditional_sort_return"` | `monthly_return` + `conditioning_description` |
+| A difference in Sharpe ratios between named top and bottom buckets | `"sharpe_ratio_difference"` | `annualized_sharpe_diff` + `comparison_description` |
+| A variance-ratio VR(q) statistic vs. a random-walk null | `"variance_ratio_statistic"` | `q` (integer ≥ 2) + `vr_value` |
+| A regression intercept α on a named factor model | `"regression_alpha"` | `monthly_alpha` + `factor_model` + `regressor_description` |
+| Any other test statistic against a stated null | `"statistical_test"` | `test_statistic_name` + `test_statistic_value` + `null_hypothesis` |
 
-`headline_claim = null` is allowed in **only one** circumstance: the paper is purely theoretical with no empirical replication at all. If the paper is empirical but you cannot identify a single headline number for the chosen variant (e.g. the paper only reports a sweep with no designated primary), do **not** set `null` — instead, raise a **high**-severity `AmbiguityFlag` with `parameter="headline_claim"`, `default_chosen` set to your best inference (the most prominent number you can find, with `reason` saying so explicitly), and still populate `headline_claim` with that inferred value. **Do not fabricate.** A high-severity flagged inference is strictly better than a hallucinated value or a silent null.
+Every variant also requires `t_stat` (set `null` if the paper does not report one for the headline value — never fabricate), `window_label`, `paper_location`, and a verbatim `supporting_quote` that contains the value itself.
+
+This field is **REQUIRED** for any empirical paper. `headline_claim = null` is allowed in **only one** circumstance: the paper is purely theoretical with no empirical replication at all.
+
+**Variant-selection guidance for ambiguous cases.** Some papers report multiple numbers; pick the variant for what the abstract / opening / Table I HIGHLIGHTS as the primary result. Examples:
+
+- A paper that reports both a monthly L/S return and a regression alpha: prefer `monthly_long_short_return` if the L/S return is the headline; prefer `regression_alpha` if the paper's contribution is "after controlling for factor X, this anomaly survives" and the alpha is the headline.
+- A paper that reports a variance ratio AND tests it against a tradeable strategy: prefer `variance_ratio_statistic` if the paper's contribution is "we reject random walk"; prefer `monthly_long_short_return` if the contribution is "this contrarian strategy earns Y%/mo".
+- AQR-style factor-zoo papers (sort N factors, report Sharpe spread): always `sharpe_ratio_difference` — the headline is the spread, not the long-leg's mean.
+
+**NEVER use `monthly_return = 0.0` (or `annualized_sharpe_diff = 0.0`, etc.) as a placeholder.** A non-zero t-statistic with a zero value is mathematically impossible (`t = mean·√N / σ`); a downstream consistency check rejects and drops the claim. If you cannot extract a clean value for any of the six variants, raise a **high**-severity `AmbiguityFlag` with `parameter="headline_claim"` and emit `StatisticalTestClaim` with your best inference plus a `reason` that explicitly says "inferred, not extracted". A flagged inference is strictly better than a hallucinated value or a silent null.
+
+### 9. Long-short bucket convention — canonical encoding
+
+For long-short specs (`portfolio.long_short=True`), the engine enforces a **canonical encoding**: `portfolio.long_bucket` must equal `portfolio.n_buckets` (the TOP bucket of the post-direction-flip rank ordering) and `portfolio.short_bucket` must equal `1` (the BOTTOM). The sign of the strategy is carried entirely by `signal.direction`:
+
+- For a momentum paper (long winners, short losers): `direction="long_high"`, `long_bucket=n_buckets`, `short_bucket=1`. The engine ranks low→high; top bucket = high past return = paper's winners. ✓
+- For a reversal paper (long losers, short winners): `direction="long_low"`, `long_bucket=n_buckets`, `short_bucket=1`. The engine negates the signal so top bucket = lowest original score = paper's losers. ✓
+
+**Do NOT encode contrarianism via `(direction="long_high", long_bucket=1, short_bucket=n_buckets)` or `(direction="long_low", long_bucket=1, short_bucket=n_buckets)`** — both double-encode the sign and the engine's validator will reject the spec. There is exactly ONE valid encoding per strategy direction.
+
+Long-only specs (`long_short=False`) are unaffected — `long_bucket` may be any value ∈ [1, n_buckets]; the choice represents which percentile the paper goes long.
 
 ---
 
@@ -164,6 +192,112 @@ Suppose the paper describes portfolio formation immediately after signal measure
 ```
 
 Note: **no `supporting_quote` is placed on the rebalance field itself**. The `AmbiguityFlag` *is* the honest record. Do not attach the "formed immediately" body-prose sentence to `rebalance.execution_lag_days` — it describes the signal-to-formation transition, not the formation-to-trade transition, and using it here would be an inference disguised as evidence (anti-pattern 3 below).
+
+### Example C — `headline_claim` variant per paper class
+
+One short worked example for each of the six `headline_claim` variants. Pick the variant whose `kind` matches the paper's headline shape (rule 8's table).
+
+**C.1 — `monthly_long_short_return` (JT 1993 momentum)**
+
+Paper reports Table I Panel A J=6/K=6 'Buy-sell' = 0.0095 monthly with t=3.07 over 1965-1989. Spec is long-short momentum (`signal.direction='long_high'`, `long_bucket=10`, `short_bucket=1`). Headline:
+
+```json
+{
+  "kind": "monthly_long_short_return",
+  "monthly_return": 0.0095,
+  "t_stat": 3.07,
+  "window_label": "January 1965 – December 1989",
+  "paper_location": "Table I Panel A, J=6/K=6 'Buy-sell' row",
+  "supporting_quote": {"text": "Buy-sell 0.0095", "page": 7}
+}
+```
+
+**C.2 — `nested_conditional_sort_return` (CHST 2017 short-term reversals)**
+
+Paper reports Table II Panel A: 1-month reversal computed WITHIN the 3-month-loser quintile = 1.683%/mo, t=7.80 over 1980-2011. The conditioning sort can't be expressed in a single `ReplicationSpec` field — the `conditioning_description` carries the methodological context. Spec is reversal (`signal.direction='long_low'`, `long_bucket=5`, `short_bucket=1`). Headline:
+
+```json
+{
+  "kind": "nested_conditional_sort_return",
+  "monthly_return": 0.01683,
+  "t_stat": 7.80,
+  "window_label": "January 1980 – December 2011",
+  "paper_location": "Table II Panel A — 1M reversal within 3M-loser quintile",
+  "supporting_quote": {"text": "Loser 1.857*** 1.642*** 1.038*** 1.683***", "page": 9},
+  "conditioning_description": "1-month past-return reversal computed WITHIN the 3-month past-return loser quintile (double-sort: outer on 3M past return, inner on 1M past return)."
+}
+```
+
+**C.3 — `sharpe_ratio_difference` (AQR 2024 streaks)**
+
+Paper sorts ~153 JKP factors by a variance-ratio measure of streakiness into terciles and reports the annualized Sharpe-ratio gap between top and bottom terciles, t=2.67. The headline is the Sharpe DIFFERENCE, not a monthly L/S return. Headline:
+
+```json
+{
+  "kind": "sharpe_ratio_difference",
+  "annualized_sharpe_diff": 0.45,
+  "t_stat": 2.67,
+  "window_label": "1973 – 2024",
+  "paper_location": "Exhibit 7, top vs. bottom variance-ratio tercile; t-stat from footnote 9",
+  "supporting_quote": {"text": "<verbatim span containing the Sharpe-diff value>", "page": 14},
+  "comparison_description": "Top vs. bottom tercile of ~153 JKP factors sorted by variance ratio of monthly returns over a 60-month window."
+}
+```
+
+**C.4 — `variance_ratio_statistic` (Lo-MacKinlay 1988 random-walk test)**
+
+Paper reports VR(q) statistics for weekly NYSE-AMEX returns against the random-walk null. Headline is one specific (q, VR-value) pair the abstract highlights — e.g. VR(4)=1.30 for the smallest size quintile with z=7.51. There is no tradeable headline; the verdict is statistic-to-statistic. Headline:
+
+```json
+{
+  "kind": "variance_ratio_statistic",
+  "q": 4,
+  "vr_value": 1.30,
+  "t_stat": 7.51,
+  "window_label": "September 6, 1962 – December 26, 1985",
+  "paper_location": "Table 2, q=4, weekly equal-weighted size-portfolio 1 (smallest quintile)",
+  "supporting_quote": {"text": "<verbatim VR(4) cell from Table 2>", "page": 16}
+}
+```
+
+(The `null_hypothesis` field defaults to `"random walk (VR(q) = 1 for all q)"` and may be omitted unless the paper specifies otherwise.)
+
+**C.5 — `regression_alpha` (Fama-French 1993 style)**
+
+Paper regresses size-decile-10 monthly excess returns on the FF3 model and reports an intercept of 0.21%/mo, t=2.34 over 1963-1991. The engine's job downstream is to run the same regression on its replicated returns and compare intercepts. Headline:
+
+```json
+{
+  "kind": "regression_alpha",
+  "monthly_alpha": 0.0021,
+  "t_stat": 2.34,
+  "window_label": "July 1963 – December 1991",
+  "paper_location": "Table 9a Panel B, decile 10 intercept",
+  "supporting_quote": {"text": "<verbatim intercept row from Table 9a>", "page": 33},
+  "factor_model": "Fama-French 3-factor (Mkt-RF, SMB, HML)",
+  "regressor_description": "Value-weighted size-decile-10 (largest stocks) monthly excess returns regressed on Mkt-RF / SMB / HML."
+}
+```
+
+**C.6 — `statistical_test` (catch-all for unusual headlines)**
+
+Use ONLY when none of C.1–C.5 fit. Example: a paper whose headline is a Ljung-Box autocorrelation Q-statistic with no tradeable strategy:
+
+```json
+{
+  "kind": "statistical_test",
+  "test_statistic_name": "Ljung-Box Q(12)",
+  "test_statistic_value": 23.5,
+  "p_value": 0.024,
+  "t_stat": null,
+  "null_hypothesis": "no serial correlation up to lag 12",
+  "window_label": "January 2000 – December 2024",
+  "paper_location": "Table 3, weekly returns of the S&P 500 composite",
+  "supporting_quote": {"text": "<verbatim row from Table 3>", "page": 5}
+}
+```
+
+Prefer C.4 (`variance_ratio_statistic`) or C.5 (`regression_alpha`) when they fit. `statistical_test` is the fallback that triggers a high-severity `AmbiguityFlag` for human review.
 
 ---
 
@@ -252,11 +386,11 @@ The literal title. No quote needed.
 - `kind` — one of:
    - `"past_return"` — momentum / reversal signals based on cumulative price return over a window. Set `lookback_months` and `skip_months`.
    - `"variance_ratio"` — AQR-style "streakiness" signals defined as `Var(annual_return) / (12 × Var(monthly_return))` over a long lookback window. The canonical example is the 2024 AQR paper "The Hidden Value of Streaky Returns in Stock Portfolios" (long high-VR, short low-VR). High VR ⇒ persistent / streaky returns; low VR ⇒ mean-reverting. Set `lookback_months` to the variance estimation window (the engine requires `lookback_months >= 24`; 60 = 5 years is a sensible default). Use this kind for any paper whose primary signal is a variance ratio, autocorrelation statistic, or "streakiness" measure — do NOT mark these as `"custom"`.
-   - `"fundamental_ratio"` — accounting-ratio sorts (P/B, gross-profitability, accruals, debt-issuance, etc.). The engine does not yet implement this kind; mark it accurately and the engine layer will substitute a structured proxy with an honest data-quality flag.
+   - `"fundamental_ratio"` — accounting-ratio sorts (gross profitability, book-to-market, earnings yield, asset growth, accruals, etc.). The engine implements a registry of canonical ratios in `src/engine/signals.py::FUNDAMENTAL_RATIO_REGISTRY`. Currently supported names (set `signal.name` to one of these, lowercased): `gross_profitability`, `book_to_market`, `earnings_yield`, `asset_growth`, `accruals`. Match the canonical name (lowercased snake_case) — if the paper uses a different name for the same ratio (e.g. "profitability" or "GP/A" for gross_profitability), still set `signal.name` to the canonical form so the engine routes correctly. For ratios outside the registry, set `signal.name` to a descriptive value anyway; the engine will emit a typed `SpecAdaptation(kind='unknown_fundamental_ratio')` and substitute a past-return proxy. Fundamentals coverage on the active data source begins 2019-05; for earlier sample windows the engine will emit `SpecAdaptation(kind='fundamentals_unavailable_in_window')` and the substituted proxy.
    - `"custom"` — anything else: learned models (transformers, deep nets), regression betas, sentiment scores, news-derived signals, peer-based metrics. The engine will substitute a structured proxy.
 - `lookback_months` — required when `kind="past_return"` or `kind="variance_ratio"` (must be `>= 24` for variance_ratio)
 - `skip_months` — the "skip-month" convention baked into the signal definition. **This is NOT the execution lag.** For JT's 6-month formation with 1-month skip: `skip_months=1`.
-- `direction` — `"long_high"` if buy the top rank, `"long_low"` if buy the bottom rank
+- `direction` — `"long_high"` if the paper buys the top-ranked names (e.g. momentum: long winners); `"long_low"` if the paper buys the bottom-ranked names (e.g. reversal: long losers). This field is the SINGLE SOURCE OF TRUTH for the sign of the strategy — see rule 9 above. The engine negates the signal score when `direction="long_low"`, so `portfolio.long_bucket=n_buckets` always picks the paper's chosen long leg.
 - `frequency` — how often the signal is recomputed
 - `lag_fundamentals_days` — 0 for price-only signals
 - `supporting_quote` — the paper's definition of the signal
@@ -266,7 +400,7 @@ The literal title. No quote needed.
 ### `portfolio` (`PortfolioSpec`)
 - `construction` — `"quintile"` / `"decile"` / `"tercile"` / `"custom_sort"`
 - `n_buckets` — `5` / `10` / etc.
-- `long_bucket` / `short_bucket` — 1-indexed (e.g. `10` = top decile)
+- `long_bucket` / `short_bucket` — 1-indexed bucket integers. **For `long_short=True` specs the canonical encoding is `long_bucket=n_buckets`, `short_bucket=1` — see rule 9.** The engine's `@model_validator` rejects any other combination; the sign of the strategy is carried by `signal.direction`. For `long_short=False` specs, `long_bucket` is free (it represents the percentile the paper goes long; e.g. P3 in a tercile = `long_bucket=3`).
 - `weighting` — `"equal"` / `"value"` / `"signal_weighted"`
 - `use_nyse_breakpoints` — `true` if the paper sorts by NYSE-only percentiles
 - `long_short` — `true` / `false`
@@ -287,22 +421,29 @@ The paper's explicit sample period.
 ### `ambiguities` (tuple of `AmbiguityFlag`)
 See the mandatory list and severity defaults below.
 
-### `headline_claim` (`HeadlineClaim` | `null`)
+### `headline_claim` (`HeadlineClaim` | `null`) — discriminated union
 
-The paper's own reported headline number for the variant you selected. Used downstream by D2 to attribute the gap between the paper's claim and the engine's replication.
+The paper's own reported headline for the variant you selected. Pick ONE of the six concrete variants per rule 8's table. Used downstream by D1/D2/D3 to attribute the gap between the paper's claim and the engine's replication.
 
-- `metric` — `"monthly_long_short_return"` (the only metric supported today)
-- `monthly_return` — decimal, e.g. `0.0095` for 0.95% per month. Convert percentages reported in the paper accordingly (`0.95%` → `0.0095`)
-- `t_stat` — the Newey-West t-statistic for the headline number if the paper reports one, else `null`
-- `window_label` — the literal sample window the paper used for that number, e.g. `"Jan 1965 – Dec 1989"`
-- `paper_location` — where the number appears, e.g. `"Table I Panel A, J=6/K=6 'Buy-sell' row"`
-- `supporting_quote` — a verbatim span (rule 6: table cells are citable) that contains the number itself, e.g. `{"text": "Buy-sell 0.0095", "page": 7}`
+**Shared fields (every variant):**
+- `kind` — the discriminator. One of `"monthly_long_short_return"`, `"nested_conditional_sort_return"`, `"sharpe_ratio_difference"`, `"variance_ratio_statistic"`, `"regression_alpha"`, `"statistical_test"`.
+- `t_stat` — Newey-West (for time-series statistics) or OLS (for regression alphas) t-statistic for the headline value, if reported. `null` if the paper does not report one — never fabricate.
+- `window_label` — literal sample window the number applies to, e.g. `"January 1965 – December 1989"`.
+- `paper_location` — table/cell/paragraph reference, e.g. `"Table I Panel A, J=6/K=6 'Buy-sell' row"` or `"Exhibit 7, footnote 9"`.
+- `supporting_quote` — verbatim span (rule 6: table cells are citable) that contains the value itself.
 
-The supporting quote should literally contain the number so a human reviewer can confirm the linkage at a glance. If the paper reports the value only as a percentage (`0.95%`) and not as the decimal, cite the percentage form verbatim — the value field still uses decimal.
+**Per-variant value fields:**
 
-Set `headline_claim = null` if and only if: the paper is theoretical with no empirical result, OR the paper reports no single number designated as the headline for any variant, OR you cannot find a clean monthly long-short return value in the paper. Do not fabricate. A null claim is strictly better than a hallucinated one.
+- `monthly_long_short_return` → `monthly_return: float` (decimal/month; `0.95%/mo → 0.0095`; `5.4%/yr → 0.0045`).
+- `nested_conditional_sort_return` → `monthly_return: float` + `conditioning_description: str` (one or two sentences describing the outer conditioning sort and how it relates to the inner sort).
+- `sharpe_ratio_difference` → `annualized_sharpe_diff: float` (decimal annualized; multiply monthly Sharpe by √12 if the paper reports monthly) + `comparison_description: str` (which two buckets the Sharpe diff is between).
+- `variance_ratio_statistic` → `q: int` (≥ 2; aggregation horizon in periods of the underlying frequency: weeks for weekly papers, months for monthly papers) + `vr_value: float`. The `null_hypothesis` field defaults to `"random walk (VR(q) = 1 for all q)"` — override if the paper specifies otherwise.
+- `regression_alpha` → `monthly_alpha: float` (decimal/month) + `factor_model: str` (e.g. `"Fama-French 3-factor (Mkt-RF, SMB, HML)"`) + `regressor_description: str` (what's on the LHS of the regression).
+- `statistical_test` → `test_statistic_name: str` + `test_statistic_value: float` + `null_hypothesis: str`; optional `p_value: float ∈ [0, 1]` if reported.
 
-**NEVER use `monthly_return = 0.0` as a placeholder.** A non-zero t-statistic with a zero monthly return is mathematically impossible (t = mean·√N / σ); a downstream consistency check will reject and drop the entire claim. If the paper reports a t-statistic but the corresponding mean monthly return is not stated as a clean number you can cite verbatim — for example, the paper reports an annualized Sharpe ratio, an alpha from a regression with no monthly long-short row, or only a percentile-spread chart — set the entire `headline_claim` to `null`. Never extract the t-statistic in isolation.
+**Sign convention (variants with a return field):** The number is ALWAYS signed for the paper's chosen long-vs-short orientation. For a momentum paper (`signal.direction='long_high'`), positive `monthly_return` means winners outperformed losers. For a reversal paper (`signal.direction='long_low'`), positive `monthly_return` STILL means the paper's chosen long leg (losers) outperformed its short leg (winners) — invert the sign if the paper reports "losers earned −X% relative to winners". Never report a negative number when the paper's contribution is the contrarian strategy.
+
+**`null` is allowed ONLY when** the paper is purely theoretical with no empirical replication. Otherwise, populate one of the six variants. If the paper's shape is genuinely unclear, use `statistical_test` with a high-severity AmbiguityFlag (per rule 8).
 
 ### `notes` (string)
 Anything a human reviewer should know that doesn't fit elsewhere. Keep under 500 characters.
@@ -361,7 +502,8 @@ Also raise flags for any other choice you made without a verbatim quote backing 
 - [ ] Every unstated choice has an `AmbiguityFlag` at its locked default severity (upgraded only with stated reason).
 - [ ] **For each `supporting_quote`, verify:** does this exact sentence say what this field says? If the quote is "close but about a different thing" (e.g. the quote defines the signal but the field is about execution timing), remove the quote and raise an `AmbiguityFlag` instead.
 - [ ] Each flag whose `default_chosen` was inferred rather than extracted explicitly says so in `reason`.
-- [ ] `headline_claim` is populated with the paper's reported number for the chosen variant — including `window_label`, `paper_location`, and a `supporting_quote` that literally contains the value. `null` is permitted only for purely theoretical papers; empirical papers without a single designated headline must populate the field with an inferred value AND a high-severity `AmbiguityFlag` whose `parameter="headline_claim"`.
+- [ ] `headline_claim` uses the variant whose `kind` matches the paper's headline shape (rule 8's table) — one of `monthly_long_short_return`, `nested_conditional_sort_return`, `sharpe_ratio_difference`, `variance_ratio_statistic`, `regression_alpha`, `statistical_test`. The required per-variant value field(s) are populated; `window_label`, `paper_location`, and a verbatim `supporting_quote` containing the value are present. `null` is permitted only for purely theoretical papers; empirical papers without a single designated headline use `statistical_test` plus a high-severity `AmbiguityFlag` whose `parameter="headline_claim"`.
+- [ ] For long-short specs (`portfolio.long_short=True`), `portfolio.long_bucket=n_buckets` and `portfolio.short_bucket=1` (rule 9). The sign of the strategy is carried by `signal.direction`; double-encoding via inverted buckets will be rejected by the spec validator.
 - [ ] The JSON validates against the tool's input schema.
 
 A replication that honestly says "the paper is silent on X so we chose Y" is strictly better than one that confidently asserts "the paper says X" with a misaligned quote. The ambiguities list is a feature, not a limitation.

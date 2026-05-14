@@ -23,7 +23,7 @@ from src.data import DefeatBetaYahooSource, PointInTimeDataStore
 from src.pdf.parser import parse_pdf
 from src.specs import PaperClaim, SupportingQuote
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 OUT = Path("outputs/jt_d2_diagnosis.json")
 
 JT_HEADLINE_CLAIM = PaperClaim(

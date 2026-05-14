@@ -237,7 +237,6 @@
       ],
       "notes": "Primary variant is J=6/K=6 Panel A (no skip week), the strategy examined in most detail per the paper. The paper also reports a 16-strategy grid (J,K \u2208 {3,6,9,12} months) with and without a 1-week skip (Panel B). Monthly returns are compounded from CRSP daily returns. Overlapping portfolios are used: each month holds K cohorts simultaneously. The 6/6 strategy is rebalanced monthly with equal weights maintained. [Engine post-fix: universe.min_price set to 10 (filters penny stocks). The paper's true window (1965-1989) is preserved on the spec; the engine runs on a 2007-2026 OOS window per the ENGINE_WINDOW_OVERRIDES table in app/main.py \u2014 that captures the post-2009-crash momentum revival without misrepresenting the paper. The KF factor-comparison banner independently validates the original 1965-1989 claim.]",
       "headline_claim": {
-        "metric": "monthly_long_short_return",
         "monthly_return": 0.0095,
         "t_stat": 3.07,
         "window_label": "January 1965 to December 1989",
@@ -247,7 +246,8 @@
           "page": 7,
           "match_confidence": 1.0,
           "verified": false
-        }
+        },
+        "kind": "monthly_long_short_return"
       }
     },
     "report": {
@@ -2636,7 +2636,8 @@
     "monthly_return": 0.0095,
     "tstat": 3.07,
     "window": "January 1965 to December 1989",
-    "paper_location": "Table I Panel A, J=6/K=6 'Buy-sell' row"
+    "paper_location": "Table I Panel A, J=6/K=6 'Buy-sell' row",
+    "kind": "monthly_long_short_return"
   },
   "robustness": {
     "scorecard": {

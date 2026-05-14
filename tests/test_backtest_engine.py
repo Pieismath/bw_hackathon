@@ -246,6 +246,91 @@ def test_past_return_signal_direction_inverts_sign():
         assert sig_low[sym] == pytest.approx(-sig_high[sym])
 
 
+def test_momentum_vs_reversal_long_short_returns_flip_sign():
+    """End-to-end sign-flip check: on the SAME synthetic price panel where
+    momentum is present by construction (winners persist, losers persist),
+    a momentum spec (direction='long_high') and a reversal spec
+    (direction='long_low') with otherwise identical CANONICAL portfolios
+    (long_bucket=n_buckets, short_bucket=1) must produce long-short
+    next-period returns of opposite sign.
+
+    This is the regression for the user's "flipped results" concern from
+    the dehardcode prompt: the engine's signal-negation chain
+    (compute_signal → form_portfolio → weighted-sum) must be sign-correct
+    end-to-end. The validator-enforced canonical bucket encoding means
+    direction is the SINGLE point where the sign can flip; this test
+    proves it does, on data with a known truth.
+    """
+    # 13 month-end timestamps so a 6-month lookback + 1-month skip leaves a
+    # legitimate next-period (idx[11]) for return measurement.
+    idx = pd.date_range("2020-01-31", periods=13, freq="ME").normalize()
+    # 6 tickers: 3 steady winners, 3 steady losers. Past returns are
+    # deterministically separable into a "winners" group and a "losers" group
+    # so qcut on quintile=3 (tercile) cleanly partitions them.
+    prices = pd.DataFrame(
+        {
+            "WIN_A": [100 * 1.04**i for i in range(13)],
+            "WIN_B": [100 * 1.03**i for i in range(13)],
+            "WIN_C": [100 * 1.02**i for i in range(13)],
+            "LOS_A": [100 * 0.96**i for i in range(13)],
+            "LOS_B": [100 * 0.97**i for i in range(13)],
+            "LOS_C": [100 * 0.98**i for i in range(13)],
+        },
+        index=idx,
+    )
+
+    formation = idx[10]   # signal sees prices through idx[10]
+    next_period = idx[11]  # one month forward — the realized return
+
+    base_sig = dict(
+        name="m", formula="f", inputs=("close",),
+        kind="past_return", lookback_months=6, skip_months=1, frequency="monthly",
+    )
+    sig_mom = compute_signal(
+        SignalSpec(**base_sig, direction="long_high"),
+        prices, formation, universe=list(prices.columns),
+    )
+    sig_rev = compute_signal(
+        SignalSpec(**base_sig, direction="long_low"),
+        prices, formation, universe=list(prices.columns),
+    )
+
+    # Canonical portfolio: tercile sort, long_bucket=3, short_bucket=1.
+    pf = PortfolioSpec(
+        construction="tercile", n_buckets=3, long_bucket=3, short_bucket=1,
+        weighting="equal", long_short=True, gross_exposure=2.0,
+    )
+    w_mom = form_portfolio(pf, sig_mom, mcap_at_formation=None)
+    w_rev = form_portfolio(pf, sig_rev, mcap_at_formation=None)
+
+    # Momentum longs the winners (highest signal = highest past return);
+    # reversal longs the losers (after negation, lowest past return is
+    # highest score).
+    longs_mom = {s for s, w in w_mom.items() if w > 0}
+    longs_rev = {s for s, w in w_rev.items() if w > 0}
+    assert longs_mom & {"WIN_A", "WIN_B", "WIN_C"}, "momentum should long winners"
+    assert longs_rev & {"LOS_A", "LOS_B", "LOS_C"}, "reversal should long losers"
+    assert not (longs_mom & longs_rev), (
+        "momentum and reversal long sets must be disjoint; got "
+        f"mom={longs_mom} rev={longs_rev}"
+    )
+
+    # Compute realized long-short returns for next_period = idx[11].
+    rets = prices.pct_change().loc[next_period]
+    ls_mom = sum(w * rets[s] for s, w in w_mom.items())
+    ls_rev = sum(w * rets[s] for s, w in w_rev.items())
+
+    # Momentum on this construction produces a positive next-period L/S
+    # return (winners up, losers down at the same persistent rates);
+    # reversal produces the opposite-signed return of equal magnitude.
+    assert ls_mom > 0, f"momentum L/S return should be positive; got {ls_mom}"
+    assert ls_rev < 0, f"reversal L/S return should be negative; got {ls_rev}"
+    assert ls_mom == pytest.approx(-ls_rev, abs=1e-12), (
+        f"momentum and reversal L/S returns must be exact opposites; "
+        f"got mom={ls_mom}, rev={ls_rev}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Variance ratio signal (AQR streakiness)
 # ---------------------------------------------------------------------------
@@ -363,6 +448,195 @@ def test_variance_ratio_spec_validator_rejects_short_lookback():
         kind="variance_ratio", lookback_months=12,
     )
     assert spec.lookback_months == 12
+
+
+# ---------------------------------------------------------------------------
+# Fundamental ratio signal (Phase E)
+# ---------------------------------------------------------------------------
+
+def _make_snapshot(symbol: str, items: dict, as_of):
+    """Synthetic FundamentalsSnapshot for fundamental_ratio tests.
+
+    No store hit — we hand-roll the snapshot to keep the unit test pure.
+    """
+    from datetime import date as _D
+    from src.data.store import FundamentalsSnapshot
+    from src.specs import ProvenanceRecord
+    return FundamentalsSnapshot(
+        symbol=symbol,
+        as_of_date=as_of,
+        filing_lag_days=90,
+        latest_period_end=_D(as_of.year, 12, 31) if as_of.month >= 4 else _D(as_of.year - 1, 12, 31),
+        period_type="annual",
+        items=items,
+        provenance=ProvenanceRecord(
+            source_id="test_synthetic",
+            source_tier="primary",
+            as_of_date=as_of,
+            notes="synthetic fundamentals for unit test",
+        ),
+    )
+
+
+def test_fundamental_ratio_gross_profitability_ranks_correctly():
+    """Novy-Marx gross profitability: GP/A = (revenue - cogs) / total_assets.
+    The cross-section should rank high-GP firms above low-GP firms."""
+    from datetime import date as _D
+    from src.engine.signals import compute_signal
+
+    fundamentals = {
+        "HIGH_GP": dict(revenue=1000, cogs=400, total_assets=1000),   # GP/A = 0.60
+        "MID_GP":  dict(revenue=1000, cogs=700, total_assets=1000),   # GP/A = 0.30
+        "LOW_GP":  dict(revenue=1000, cogs=950, total_assets=1000),   # GP/A = 0.05
+    }
+    def getter(ticker: str, as_of: _D, period_type: str = "annual", filing_lag_days=None):
+        return _make_snapshot(ticker, fundamentals[ticker], as_of) if ticker in fundamentals else None
+
+    spec = SignalSpec(
+        name="gross_profitability", formula="(revenue - cogs) / total_assets",
+        inputs=("revenue", "cogs", "total_assets"),
+        kind="fundamental_ratio", lookback_months=None, frequency="annual",
+        lag_fundamentals_days=90,
+    )
+    sig = compute_signal(
+        spec, price_panel=pd.DataFrame(),
+        formation_date=pd.Timestamp("2020-12-31"),
+        universe=["HIGH_GP", "MID_GP", "LOW_GP"],
+        fundamentals_getter=getter,
+    )
+    assert sig["HIGH_GP"] == pytest.approx(0.60)
+    assert sig["MID_GP"] == pytest.approx(0.30)
+    assert sig["LOW_GP"] == pytest.approx(0.05)
+    assert sig["HIGH_GP"] > sig["MID_GP"] > sig["LOW_GP"]
+
+
+def test_fundamental_ratio_direction_inverts_sign():
+    """long_low must negate the ratio so bucket N picks the paper's chosen
+    long leg (the same convention as past_return / variance_ratio)."""
+    from datetime import date as _D
+    from src.engine.signals import compute_signal
+
+    fundamentals = {
+        "HIGH": dict(revenue=1000, cogs=400, total_assets=1000),
+        "LOW":  dict(revenue=1000, cogs=900, total_assets=1000),
+    }
+    def getter(ticker, as_of, period_type="annual", filing_lag_days=None):
+        return _make_snapshot(ticker, fundamentals[ticker], as_of) if ticker in fundamentals else None
+
+    base = dict(
+        name="gross_profitability", formula="(revenue - cogs) / total_assets",
+        inputs=("revenue", "cogs", "total_assets"),
+        kind="fundamental_ratio", frequency="annual", lag_fundamentals_days=90,
+    )
+    sig_high = compute_signal(
+        SignalSpec(**base, direction="long_high"),
+        pd.DataFrame(), pd.Timestamp("2020-12-31"), ["HIGH", "LOW"],
+        fundamentals_getter=getter,
+    )
+    sig_low = compute_signal(
+        SignalSpec(**base, direction="long_low"),
+        pd.DataFrame(), pd.Timestamp("2020-12-31"), ["HIGH", "LOW"],
+        fundamentals_getter=getter,
+    )
+    assert sig_low["HIGH"] == pytest.approx(-sig_high["HIGH"])
+    assert sig_low["LOW"] == pytest.approx(-sig_high["LOW"])
+
+
+def test_fundamental_ratio_missing_items_drops_ticker():
+    """Tickers whose snapshot lacks required line items must drop out of
+    the signal (not poison the ranking with NaN/None)."""
+    from datetime import date as _D
+    from src.engine.signals import compute_signal
+
+    fundamentals = {
+        "COMPLETE": dict(revenue=1000, cogs=400, total_assets=1000),
+        "MISSING_COGS": dict(revenue=1000, total_assets=1000),
+        "ZERO_ASSETS": dict(revenue=1000, cogs=400, total_assets=0),
+    }
+    def getter(ticker, as_of, period_type="annual", filing_lag_days=None):
+        return _make_snapshot(ticker, fundamentals[ticker], as_of) if ticker in fundamentals else None
+
+    spec = SignalSpec(
+        name="gross_profitability", formula="(revenue - cogs) / total_assets",
+        inputs=("revenue", "cogs", "total_assets"),
+        kind="fundamental_ratio", frequency="annual", lag_fundamentals_days=90,
+    )
+    sig = compute_signal(
+        spec, pd.DataFrame(), pd.Timestamp("2020-12-31"),
+        ["COMPLETE", "MISSING_COGS", "ZERO_ASSETS"],
+        fundamentals_getter=getter,
+    )
+    assert "COMPLETE" in sig.index
+    assert "MISSING_COGS" not in sig.index
+    assert "ZERO_ASSETS" not in sig.index
+
+
+def test_fundamental_ratio_unknown_name_raises():
+    """Unknown ratio names raise KeyError so the engine layer can
+    substitute a typed SpecAdaptation(kind='unknown_fundamental_ratio')."""
+    from src.engine.signals import compute_signal
+
+    def empty_getter(ticker, as_of, period_type="annual", filing_lag_days=None):
+        return None
+
+    spec = SignalSpec(
+        name="some_obscure_ratio_not_in_registry", formula="x / y",
+        inputs=("x", "y"),
+        kind="fundamental_ratio", frequency="annual",
+    )
+    with pytest.raises(KeyError, match="unknown fundamental ratio"):
+        compute_signal(
+            spec, pd.DataFrame(), pd.Timestamp("2020-12-31"),
+            ["A", "B"], fundamentals_getter=empty_getter,
+        )
+
+
+def test_fundamental_ratio_without_getter_raises_not_implemented():
+    """Without a fundamentals_getter, compute_signal raises NotImplementedError
+    so the engine layer's prep chain knows to substitute a past_return proxy."""
+    from src.engine.signals import compute_signal
+
+    spec = SignalSpec(
+        name="gross_profitability", formula="f", inputs=("revenue", "cogs", "total_assets"),
+        kind="fundamental_ratio", frequency="annual",
+    )
+    with pytest.raises(NotImplementedError, match="fundamentals_getter"):
+        compute_signal(spec, pd.DataFrame(), pd.Timestamp("2020-12-31"), ["A"])
+
+
+# ---------------------------------------------------------------------------
+# SpecAdaptation typed-record (Phase E)
+# ---------------------------------------------------------------------------
+
+def test_spec_adaptation_typed_record_round_trips():
+    """SpecAdaptation is the typed replacement for the string-flag fallback
+    idiom. Smoke-test that the model constructs cleanly with the kinds the
+    engine prep layer will emit, and that it serializes / parses back."""
+    from src.specs import SpecAdaptation
+
+    sa = SpecAdaptation(
+        kind="signal_kind_proxy_substitution",
+        field_path="signal.kind",
+        from_value="fundamental_ratio",
+        to_value="past_return",
+        reason=(
+            "signal.kind='fundamental_ratio' fell back to 12-month past-return "
+            "proxy because the active data source's fundamentals coverage "
+            "(starts 2019-05) does not overlap the spec's date range."
+        ),
+    )
+    payload = sa.model_dump()
+    restored = SpecAdaptation.model_validate(payload)
+    assert restored == sa
+    assert restored.kind == "signal_kind_proxy_substitution"
+
+
+def test_backtest_result_spec_adaptations_defaults_empty():
+    """BacktestResult.spec_adaptations defaults to () so the engine doesn't
+    have to pass it explicitly on the happy path."""
+    from src.specs.results import BacktestResult
+    assert "spec_adaptations" in BacktestResult.model_fields
+    assert BacktestResult.model_fields["spec_adaptations"].default == ()
 
 
 # ---------------------------------------------------------------------------

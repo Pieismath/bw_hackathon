@@ -20,6 +20,12 @@ from src.specs import (
     DivergenceDiagnosis,
     FormationDecayPoint,
     HeadlineClaim,
+    MonthlyLongShortReturn,
+    NestedConditionalSortReturn,
+    RegressionAlpha,
+    SharpeRatioDifference,
+    StatisticalTestClaim,
+    VarianceRatioStatistic,
     MutationProposal,
     MutationResult,
     PortfolioSpec,
@@ -123,8 +129,7 @@ def _build_spec() -> ReplicationSpec:
             ),
         ),
         notes="Clipped to 1995–2020 because defeatbeta price panel begins 1994-11-30.",
-        headline_claim=HeadlineClaim(
-            metric="monthly_long_short_return",
+        headline_claim=MonthlyLongShortReturn(
             monthly_return=0.0095,
             t_stat=3.07,
             window_label="Jan 1965 – Dec 1989 (300 months)",
@@ -719,15 +724,59 @@ def build_demo_bundle() -> dict[str, Any]:
     }
 
 
-def _bundle_paper_claim(hc: HeadlineClaim | None) -> dict[str, Any] | None:
-    """Project a HeadlineClaim onto the legacy flat bundle shape D2 frontend reads."""
+def _bundle_paper_claim(hc) -> dict[str, Any] | None:
+    """Project a `HeadlineClaim` onto the legacy flat bundle shape the
+    frontend's `runDiagnosis` reads (`{monthly_return, tstat, window,
+    paper_location, kind}`).
+
+    Dispatches on the variant's ``kind``:
+
+      - ``monthly_long_short_return`` / ``nested_conditional_sort_return``:
+        directly comparable to ``BacktestResult.mean_return``; populate
+        ``monthly_return``.
+      - ``regression_alpha``: populate ``monthly_return`` with the alpha
+        value (the frontend's comparison code treats it as monthly).
+      - ``sharpe_ratio_difference`` / ``variance_ratio_statistic`` /
+        ``statistical_test``: NOT directly comparable to mean_return —
+        return ``monthly_return=None`` so the frontend renders the
+        paper-class-appropriate narrative (Sharpe-Δ pill, VR statistic
+        cell, etc.) instead of comparing apples to oranges.
+
+    Every variant emits its own ``kind`` field on the flat shape so the
+    frontend can dispatch render-time decisions on a single discriminator
+    instead of substring-matching ``paper_id``.
+    """
     if hc is None:
         return None
-    return {
-        "monthly_return": hc.monthly_return,
+    kind = getattr(hc, "kind", None)
+    base = {
+        "kind": kind,
         "tstat": hc.t_stat,
         "window": hc.window_label,
+        "paper_location": hc.paper_location,
+        "monthly_return": None,
     }
+    if isinstance(hc, (MonthlyLongShortReturn, NestedConditionalSortReturn)):
+        base["monthly_return"] = float(hc.monthly_return)
+        if isinstance(hc, NestedConditionalSortReturn):
+            base["conditioning_description"] = hc.conditioning_description
+    elif isinstance(hc, RegressionAlpha):
+        base["monthly_return"] = float(hc.monthly_alpha)
+        base["factor_model"] = hc.factor_model
+        base["regressor_description"] = hc.regressor_description
+    elif isinstance(hc, SharpeRatioDifference):
+        base["annualized_sharpe_diff"] = float(hc.annualized_sharpe_diff)
+        base["comparison_description"] = hc.comparison_description
+    elif isinstance(hc, VarianceRatioStatistic):
+        base["q"] = int(hc.q)
+        base["vr_value"] = float(hc.vr_value)
+        base["null_hypothesis"] = hc.null_hypothesis
+    elif isinstance(hc, StatisticalTestClaim):
+        base["test_statistic_name"] = hc.test_statistic_name
+        base["test_statistic_value"] = float(hc.test_statistic_value)
+        base["null_hypothesis"] = hc.null_hypothesis
+        base["p_value"] = hc.p_value
+    return base
 
 
 if __name__ == "__main__":

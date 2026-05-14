@@ -46,7 +46,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.specs import ReplicationSpec
+from src.specs import (
+    MonthlyLongShortReturn,
+    NestedConditionalSortReturn,
+    RegressionAlpha,
+    ReplicationSpec,
+    SharpeRatioDifference,
+    SpecAdaptation,
+    StatisticalTestClaim,
+    VarianceRatioStatistic,
+)
 
 APP_DIR = Path(__file__).parent
 STATIC_DIR = APP_DIR / "static"
@@ -164,6 +173,12 @@ def extract(body: PaperIdBody):
             use_cache=body.use_cache,
             use_llm_check=body.use_llm_check,
         )
+        # Phase F: no _apply_known_headline_claim. A1 emits a typed
+        # HeadlineClaim variant (MonthlyLongShortReturn / SharpeRatioDifference /
+        # VarianceRatioStatistic / RegressionAlpha / NestedConditionalSortReturn
+        # / StatisticalTestClaim) per the Phase C prompt. Force-nulling and
+        # paper-id keyed overrides are gone — the variant carries the
+        # information the frontend needs.
         return {
             "paper_id": body.paper_id,
             "paper_title": verified.spec.paper_title,
@@ -314,14 +329,15 @@ def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str |
     """If `signal.kind` is one the engine can't run today, substitute the
     closest structured kind that lets the pipeline complete.
 
-    Today the engine only implements `past_return`. Papers whose A1 emits
-    `custom` (e.g. transformer-output, learned-model signals) or
-    `fundamental_ratio` would otherwise stall at the engine stage and leave
-    the Backtest / Robustness / Diagnosis tabs empty. We substitute
-    `kind='past_return'` keeping the original lookback/skip/direction —
-    a structured proxy that respects the paper's window and direction even
-    if it can't reproduce the model output. The substitution is flagged via
-    a data_quality_flag so the UI banner / scorecards make the swap honest.
+    After Phase E the engine NATIVELY implements ``past_return``,
+    ``variance_ratio``, and ``fundamental_ratio``. Only ``custom``
+    triggers proxy substitution; that path is the residual case for
+    learned-model / transformer-output / sentiment signals whose
+    extractor outputs A1 can't otherwise express in the structured
+    spec. The substitution is still flagged via a data_quality_flag
+    today; Phase F replaces the string flag with a typed
+    ``SpecAdaptation`` on ``BacktestResult.spec_adaptations`` so the
+    frontend's ``detectProxyMode`` becomes a one-liner.
 
     Returns (possibly-substituted spec, flag message or None).
     """
@@ -353,12 +369,18 @@ def _engine_kind_fallback(spec: ReplicationSpec) -> tuple[ReplicationSpec, str |
             )
             return spec.model_copy(update={"signal": new_signal}), flag
         return spec, None
-    # Non-past_return kinds (custom, fundamental_ratio): substitute a
-    # past_return proxy. Many learned/custom signals don't carry a months
-    # lookback at all (daily streaks, transformer outputs); when missing,
-    # default to 12 months — the most common momentum window in the
-    # cross-section literature — and let the data_quality_flag make the
-    # substitution explicit.
+    if sig.kind == "fundamental_ratio":
+        # Natively implemented in src/engine/signals.py via the
+        # FUNDAMENTAL_RATIO_REGISTRY. No proxy substitution needed; the
+        # engine will raise KeyError for unknown ratio names so the
+        # caller can attach a typed SpecAdaptation in Phase F. Pass
+        # through unchanged.
+        return spec, None
+    # `custom` kind: substitute a past_return proxy. Many learned/custom
+    # signals don't carry a months lookback at all (daily streaks,
+    # transformer outputs); when missing, default to 12 months — the
+    # most common momentum window in the cross-section literature — and
+    # let the data_quality_flag make the substitution explicit.
     proxy_lookback = sig.lookback_months if sig.lookback_months is not None else 12
     flag = (
         f"engine fallback: signal.kind='{sig.kind}' is not yet implemented in "
@@ -390,51 +412,6 @@ def _flag_window_substitution(result, window_info: dict | None):
     if msg and msg not in flags:
         flags.append(msg)
     return result.model_copy(update={"data_quality_flags": tuple(flags)})
-
-
-def _rewrite_aqr_flag_for_non_aqr_paper(result, paper_id: str):
-    """Strip the AQR-streaks-specific cross-section warning from data_quality_flags
-    when the paper isn't AQR streaks.
-
-    The engine in src/engine/backtest.py emits a warning for variance_ratio +
-    individual-stock universes that name-checks the AQR 2024 paper specifically.
-    For Lo-MacKinlay 1988 / Poterba-Summers 1988 (which legitimately use
-    individual-stock VR), the AQR caveat is wrong — those papers DO want
-    stock-level VR. We bust the misleading cached flag and substitute the
-    correct concept-implied-portfolio note. The engine emits the right text
-    on cache miss; this is the fix-up path for results returned from the
-    backtest cache built before this disambiguation existed.
-    """
-    pid = (paper_id or "").lower()
-    is_aqr_streaks = (
-        "aqr_2024" in pid or "streaky_returns" in pid or "hidden_value_of_streaky" in pid
-    )
-    if is_aqr_streaks:
-        return result
-    flags = list(getattr(result, "data_quality_flags", ()) or ())
-    misleading_prefix = "variance_ratio computed on individual stocks. The AQR streaks paper sorts JKP factor portfolios"
-    corrected = (
-        "variance_ratio strategy ran on individual stocks: the engine "
-        "computes per-stock VR(k) = Var(rolling-12m return) / (12 × "
-        "Var(monthly return)) and sorts the cross-section into the "
-        "concept-implied long-short (direction set by signal.direction). "
-        "This is the tradeable portfolio implied by the paper's mean-"
-        "reversion concept; the paper itself reports VR statistics on "
-        "aggregate index returns and tests against the random-walk null, "
-        "not a long-short return — so the engine's headline is vs. zero, "
-        "not vs. a paper-quoted number."
-    )
-    rewritten = []
-    swapped = False
-    for f in flags:
-        if isinstance(f, str) and f.startswith(misleading_prefix):
-            rewritten.append(corrected)
-            swapped = True
-        else:
-            rewritten.append(f)
-    if not swapped:
-        return result
-    return result.model_copy(update={"data_quality_flags": tuple(rewritten)})
 
 
 # Per-paper-id ENGINE window overrides. Distinct from PAPER_ID_OVERRIDES in
@@ -685,6 +662,278 @@ def _coerce_portfolio_for_factor_universe(spec: ReplicationSpec) -> tuple[Replic
     return spec.model_copy(update={"portfolio": new_p}), flag
 
 
+# ---------------------------------------------------------------------------
+# prepare_spec_for_engine — the single canonical post-A1 prep chain.
+#
+# Replaces the inlined 4-5 line prep block that used to live in every
+# engine endpoint (`/api/backtest`, `/api/robustness`, `/api/diagnose`,
+# `_run_pipeline`). The single function bundles:
+#
+#   1. Store dispatch (defeatbeta vs Ken French factors)
+#   2. Window clip / OOS substitution
+#   3. signal.kind proxy fallback (for `custom` kind)
+#   4. signal.lookback_months clamp
+#   5. portfolio.weighting fallback (signal_weighted → equal)
+#   6. portfolio bucket / weighting coercion for the Ken French universe
+#
+# Every substitution emits BOTH a typed `SpecAdaptation` (the structured
+# record consumers should branch on) AND the legacy English string flag
+# (kept for backward-compat with UI banners that still grep the flag
+# text). The frontend's `detectProxyMode` now reads spec_adaptations
+# directly; the string flag is the human-readable copy.
+#
+# Phase F change vs. prior versions: this function exists at all. Before,
+# each endpoint inlined the same five calls. A previously-undiagnosed
+# bug — `_engine_weighting_fallback` was only wired into `_run_pipeline`,
+# not the three /api/* endpoints — silently disappeared once the prep
+# was bundled.
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass, field as dc_field
+
+
+@dataclass
+class PreparedSpec:
+    """Return value of `prepare_spec_for_engine`."""
+
+    spec: ReplicationSpec
+    store: object              # PointInTimeDataStore or KenFrenchFactorStore
+    store_kind: str            # "defeatbeta" or "ken_french_factors"
+    window_info: dict | None
+    spec_adaptations: tuple[SpecAdaptation, ...] = ()
+    data_quality_flags: tuple[str, ...] = ()
+
+
+def prepare_spec_for_engine(spec: ReplicationSpec) -> PreparedSpec:
+    """Single canonical post-A1 prep chain consumed by every engine endpoint.
+
+    Raises ``FileNotFoundError`` if the chosen store's data cache is not
+    present locally (callers should map this to HTTP 503).
+    """
+    adaptations: list[SpecAdaptation] = []
+    flags: list[str] = []
+
+    # 1. Build store (FileNotFoundError propagates if data cache missing).
+    store, store_kind = _build_store_for_spec(spec)
+
+    # 2. Window clip / OOS substitution. Always populates window_info
+    #    (None only if the parquet snapshot wasn't readable, in which
+    #    case the engine will fail loudly downstream and the caller
+    #    surfaces a 503).
+    spec, _clip_note, window_info = _prepare_spec_window(spec, store_kind)
+    if window_info and window_info.get("substituted"):
+        adaptations.append(SpecAdaptation(
+            kind="out_of_sample_engine_window",
+            field_path="start_date,end_date",
+            from_value=f"{window_info.get('paper_start')} → {window_info.get('paper_end')}",
+            to_value=f"{window_info.get('engine_start')} → {window_info.get('engine_end')}",
+            reason=(window_info.get("message") or "engine ran out-of-sample relative to paper window")[:500],
+        ))
+        if window_info.get("message"):
+            flags.append(window_info["message"])
+    elif window_info and window_info.get("clipped"):
+        adaptations.append(SpecAdaptation(
+            kind="window_clipped_to_panel",
+            field_path="start_date,end_date",
+            from_value=f"{window_info.get('paper_start')} → {window_info.get('paper_end')}",
+            to_value=f"{window_info.get('engine_start')} → {window_info.get('engine_end')}",
+            reason=(window_info.get("message") or "engine window clipped to data panel")[:500],
+        ))
+        if window_info.get("message"):
+            flags.append(window_info["message"])
+
+    # 3. signal.kind proxy fallback (only fires for `custom` after Phase E
+    #    — past_return, variance_ratio, fundamental_ratio are native).
+    orig_kind = spec.signal.kind
+    orig_lookback = spec.signal.lookback_months
+    spec, kind_msg = _engine_kind_fallback(spec)
+    if kind_msg:
+        adaptations.append(SpecAdaptation(
+            kind="signal_kind_proxy_substitution",
+            field_path="signal.kind",
+            from_value=str(orig_kind),
+            to_value=str(spec.signal.kind),
+            reason=kind_msg[:500],
+        ))
+        flags.append(kind_msg)
+
+    # 4. signal.lookback_months clamp.
+    pre_clamp_lookback = spec.signal.lookback_months
+    spec, clamp_msg = _engine_lookback_clamp(spec, window_info)
+    if clamp_msg:
+        adaptations.append(SpecAdaptation(
+            kind="lookback_clamp",
+            field_path="signal.lookback_months",
+            from_value=str(pre_clamp_lookback),
+            to_value=str(spec.signal.lookback_months),
+            reason=clamp_msg[:500],
+        ))
+        flags.append(clamp_msg)
+
+    # 5. portfolio.weighting fallback (signal_weighted → equal).
+    pre_weighting = spec.portfolio.weighting
+    spec, weighting_msg = _engine_weighting_fallback(spec)
+    if weighting_msg:
+        adaptations.append(SpecAdaptation(
+            kind="weighting_fallback",
+            field_path="portfolio.weighting",
+            from_value=str(pre_weighting),
+            to_value=str(spec.portfolio.weighting),
+            reason=weighting_msg[:500],
+        ))
+        flags.append(weighting_msg)
+
+    # 6. Portfolio coercion for the Ken French 6-factor universe.
+    pre_pf = spec.portfolio
+    spec, coerce_msg = _coerce_portfolio_for_factor_universe(spec)
+    if coerce_msg:
+        adaptations.append(SpecAdaptation(
+            kind="portfolio_bucket_coercion",
+            field_path="portfolio",
+            from_value=f"n_buckets={pre_pf.n_buckets},weighting={pre_pf.weighting}",
+            to_value=f"n_buckets={spec.portfolio.n_buckets},weighting={spec.portfolio.weighting}",
+            reason=coerce_msg[:500],
+        ))
+        flags.append(coerce_msg)
+
+    # Note: `_flag_window_substitution` runs AFTER the engine, not in prep.
+    # It propagates the window_info.message into BacktestResult.data_quality_flags
+    # so the substitution is visible regardless of whether the caller reads
+    # window_info separately. That step stays at each callsite for now.
+
+    return PreparedSpec(
+        spec=spec,
+        store=store,
+        store_kind=store_kind,
+        window_info=window_info,
+        spec_adaptations=tuple(adaptations),
+        data_quality_flags=tuple(flags),
+    )
+
+
+def _attach_engine_prep_to_result(result, prepared: PreparedSpec):
+    """Append `prepared.spec_adaptations` and `prepared.data_quality_flags`
+    onto a BacktestResult after the engine returns. Pure: returns a new
+    BacktestResult via model_copy.
+    """
+    extra_flags = [m for m in prepared.data_quality_flags if m]
+    new_adaptations = tuple(getattr(result, "spec_adaptations", ()) or ()) + prepared.spec_adaptations
+    if not extra_flags and not prepared.spec_adaptations:
+        return result
+    existing_flags = list(getattr(result, "data_quality_flags", ()) or ())
+    for f in extra_flags:
+        if f and f not in existing_flags:
+            existing_flags.append(f)
+    return result.model_copy(update={
+        "data_quality_flags": tuple(existing_flags),
+        "spec_adaptations": new_adaptations,
+    })
+
+
+def _headline_claim_comparable_to_mean_return(hc) -> bool:
+    """Whether the engine's BacktestResult.mean_return is directly
+    comparable to the paper's headline_claim value field.
+
+    D1/D2/D3 only get a meaningful gap when the claim is a monthly L/S
+    return shape (MonthlyLongShortReturn, NestedConditionalSortReturn)
+    or a regression alpha (RegressionAlpha, monthly units). For
+    SharpeRatioDifference / VarianceRatioStatistic / StatisticalTestClaim
+    the comparison is statistic-to-statistic or per-leg-Sharpe, which
+    the engine doesn't emit today — Phase E flagged these as the
+    `engine_does_not_expose_per_leg` / engine-doesn't-emit-vr cases.
+    """
+    return isinstance(
+        hc,
+        (MonthlyLongShortReturn, NestedConditionalSortReturn, RegressionAlpha),
+    )
+
+
+def _build_paper_claim_for_d2_d3(hc, baseline_for_placeholder=None):
+    """Construct a `PaperClaim` from any `HeadlineClaim` variant.
+
+    D2 (divergence diagnostician) and D3 (robustness adversary) consume
+    the legacy ``PaperClaim`` shape (a single ``claimed_value`` + units).
+    For variants that ARE comparable to ``BacktestResult.mean_return``
+    (MonthlyLongShortReturn, NestedConditionalSortReturn, RegressionAlpha),
+    we map the variant's value field straight onto ``claimed_value``.
+    For variants that AREN'T comparable (Sharpe-Δ, VR statistic, generic
+    stat test), we fall back to a baseline-shaped placeholder so D2/D3
+    still produce output the SPA can render — but the caller should
+    check ``_headline_claim_comparable_to_mean_return`` first and skip
+    D2 entirely when the variant isn't comparable.
+    """
+    from src.specs import PaperClaim, SupportingQuote
+
+    if hc is None:
+        if baseline_for_placeholder is None:
+            return None
+        return PaperClaim(
+            claim_id="placeholder_no_headline_claim",
+            metric="monthly_long_short_return",
+            claimed_value=float(baseline_for_placeholder.mean_return),
+            claimed_tstat=baseline_for_placeholder.alpha_tstat,
+            claimed_units="decimal_per_month",
+            paper_location="A1 did not extract a headline_claim",
+            supporting_quote=SupportingQuote(
+                text="placeholder — no headline_claim available",
+                page=1, verified=False, match_confidence=0.0,
+            ),
+        )
+
+    if isinstance(hc, (MonthlyLongShortReturn, NestedConditionalSortReturn)):
+        return PaperClaim(
+            claim_id="spec_headline_claim",
+            metric="monthly_long_short_return",
+            claimed_value=float(hc.monthly_return),
+            claimed_tstat=hc.t_stat,
+            claimed_units="decimal_per_month",
+            paper_location=hc.paper_location,
+            supporting_quote=hc.supporting_quote,
+        )
+    if isinstance(hc, RegressionAlpha):
+        return PaperClaim(
+            claim_id="spec_headline_claim",
+            metric="monthly_regression_alpha",
+            claimed_value=float(hc.monthly_alpha),
+            claimed_tstat=hc.t_stat,
+            claimed_units="decimal_per_month",
+            paper_location=hc.paper_location,
+            supporting_quote=hc.supporting_quote,
+        )
+    # SharpeRatioDifference / VarianceRatioStatistic / StatisticalTestClaim:
+    # not directly comparable to mean_return. Emit a placeholder so D3 has
+    # something to read; D2 should skip via _headline_claim_comparable_to_mean_return.
+    if baseline_for_placeholder is None:
+        return None
+    metric_str = f"non_comparable_to_mean_return:{getattr(hc, 'kind', 'unknown')}"
+    return PaperClaim(
+        claim_id="placeholder_non_monthly_ls",
+        metric=metric_str,
+        claimed_value=float(baseline_for_placeholder.mean_return),
+        claimed_tstat=baseline_for_placeholder.alpha_tstat,
+        claimed_units="decimal_per_month",
+        paper_location=getattr(hc, "paper_location", "non-comparable claim shape"),
+        supporting_quote=hc.supporting_quote,
+    )
+
+
+def _close_store_safely(store) -> None:
+    """Best-effort close for stores whose underlying sources hold resources."""
+    sources = getattr(store, "sources", None)
+    if sources:
+        for src in sources.values():
+            try:
+                src.close()
+            except (AttributeError, Exception):
+                pass
+    close = getattr(store, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 class BacktestBody(BaseModel):
     spec: dict
     transaction_cost_bps: float = 0.0
@@ -713,7 +962,7 @@ def backtest(body: BacktestBody):
             )
 
         try:
-            store, store_kind = _build_store_for_spec(spec)
+            prepared = prepare_spec_for_engine(spec)
         except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
@@ -723,25 +972,16 @@ def backtest(body: BacktestBody):
                 },
             )
 
-        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
-        spec, kind_fallback_msg = _engine_kind_fallback(spec)
-        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
-        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
-        result = run_backtest(spec, store, transaction_cost_bps=body.transaction_cost_bps)
-        result = _flag_window_substitution(result, window_info)
-        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
-        if extra_flags:
-            flags = list(result.data_quality_flags) + extra_flags
-            result = result.model_copy(update={"data_quality_flags": tuple(flags)})
-        for _src in store.sources.values():
-            try: _src.close()
-            except AttributeError: pass
+        result = run_backtest(prepared.spec, prepared.store, transaction_cost_bps=body.transaction_cost_bps)
+        result = _flag_window_substitution(result, prepared.window_info)
+        result = _attach_engine_prep_to_result(result, prepared)
+        _close_store_safely(prepared.store)
         return _sanitize_for_json({
             "backtest": result.model_dump(mode="json"),
-            "clip_note": clip_note,
-            "window_info": window_info,
-            "kind_fallback": kind_fallback_msg,
-            "store_kind": store_kind,
+            "clip_note": (prepared.window_info or {}).get("message"),
+            "window_info": prepared.window_info,
+            "spec_adaptations": [a.model_dump() for a in prepared.spec_adaptations],
+            "store_kind": prepared.store_kind,
         })
     except Exception as e:
         traceback.print_exc()
@@ -787,7 +1027,7 @@ def robustness(body: RobustnessBody):
             )
 
         try:
-            store, store_kind = _build_store_for_spec(spec)
+            prepared = prepare_spec_for_engine(spec)
         except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
@@ -797,51 +1037,19 @@ def robustness(body: RobustnessBody):
                 },
             )
 
-        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
-        spec, kind_fallback_msg = _engine_kind_fallback(spec)
-        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
-        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
-        scorecard = run_battery(spec, store, families=body.families)
+        scorecard = run_battery(prepared.spec, prepared.store, families=body.families)
         baseline = run_backtest_cached(
-            spec, store, transaction_cost_bps=body.transaction_cost_bps
+            prepared.spec, prepared.store, transaction_cost_bps=body.transaction_cost_bps
         )
-        baseline = _flag_window_substitution(baseline, window_info)
-        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
-        if extra_flags:
-            flags = list(baseline.data_quality_flags) + extra_flags
-            baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
-        # D3 needs a PaperClaim for context. Prefer spec.headline_claim
-        # (A1's extracted paper number) so the judgment compares against
-        # the paper's real claim, not a self-referential baseline-as-claim
-        # placeholder that produces a zero gap by construction. Only fall
-        # back to a baseline-shaped placeholder when A1 didn't extract a
-        # headline_claim at all.
-        hc = getattr(spec, "headline_claim", None)
-        if hc is not None and getattr(hc, "monthly_return", None) is not None:
-            placeholder_claim = PaperClaim(
-                claim_id="spec_headline_claim",
-                metric="monthly_long_short_return",
-                claimed_value=float(hc.monthly_return),
-                claimed_tstat=hc.t_stat,
-                claimed_units="decimal_per_month",
-                paper_location=hc.paper_location or "spec.headline_claim",
-                supporting_quote=hc.supporting_quote,
-            )
-        else:
-            placeholder_claim = PaperClaim(
-                claim_id="placeholder_headline",
-                metric="monthly_long_short_return",
-                claimed_value=baseline.mean_return,
-                claimed_tstat=baseline.alpha_tstat,
-                claimed_units="decimal_per_month",
-                paper_location="caller_did_not_supply_claim",
-                supporting_quote=SupportingQuote(
-                    text="placeholder claim — caller did not supply paper claim",
-                    page=1,
-                    verified=False,
-                    match_confidence=0.0,
-                ),
-            )
+        baseline = _flag_window_substitution(baseline, prepared.window_info)
+        baseline = _attach_engine_prep_to_result(baseline, prepared)
+        # D3 needs a PaperClaim for context. Dispatch via the variant-aware
+        # helper so SharpeRatioDifference / VarianceRatioStatistic /
+        # StatisticalTestClaim variants get a non-comparable placeholder
+        # tagged with their `kind` (so D3's narrative can be honest about
+        # the structural mismatch).
+        hc = getattr(prepared.spec, "headline_claim", None)
+        placeholder_claim = _build_paper_claim_for_d2_d3(hc, baseline_for_placeholder=baseline)
         # D3 LLM call. Retry once on Anthropic 529 (overload); if it still
         # fails, return the scorecard alone so the user keeps the 90s of
         # battery work — the deterministic part is what costs time, the LLM
@@ -860,17 +1068,15 @@ def robustness(body: RobustnessBody):
                     continue
                 judgment_error = f"D3 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        for _src in store.sources.values():
-            try: _src.close()
-            except AttributeError: pass
+        _close_store_safely(prepared.store)
         return _sanitize_for_json({
             "scorecard": scorecard.model_dump(mode="json"),
             "judgment": judgment.model_dump(mode="json") if judgment else None,
             "judgment_error": judgment_error,
-            "clip_note": clip_note,
-            "window_info": window_info,
-            "kind_fallback": kind_fallback_msg,
-            "store_kind": store_kind,
+            "clip_note": (prepared.window_info or {}).get("message"),
+            "window_info": prepared.window_info,
+            "spec_adaptations": [a.model_dump() for a in prepared.spec_adaptations],
+            "store_kind": prepared.store_kind,
         })
     except BaseException as e:
         traceback.print_exc()
@@ -971,45 +1177,35 @@ def diagnose_endpoint(body: DiagnoseBody):
                 },
             )
 
-        # Refuse to run D2 on placeholder claims AND on known non-tradeable
-        # paper classes. Specification-test papers (Lo-MacKinlay 1988,
-        # Poterba-Summers 1988) and factor-tilt Sharpe-claim papers (AQR
-        # streaks) don't report a tradeable monthly L/S return.
-        #
-        # Match by SUBSTRING rather than exact paper_id — A1 generates
-        # paper_id values from the paper title and they vary across runs
-        # (e.g. lo_mackinlay_1988 vs
-        # lo_mackinlay_1988_stock_market_prices_do_not_follow_random_walks_evidence).
-        # Substring keywords catch all the variants reliably.
-        NO_D2_PAPER_KEYWORDS = (
-            "lo_mackinlay",
-            "mackinlay",
-            "random_walk",        # matches random_walk and random_walks
-            "poterba_summers",
-            "mean_reversion",
-            "streaky_returns",
-            "streaks",
-            "variance_ratio_test",
-            "specification_test",
-        )
-        pid_lower = (spec.paper_id or "").lower()
+        # Phase F: skip D2 when (a) the caller supplied a placeholder claim,
+        # or (b) the spec's headline_claim is a variant whose value isn't
+        # directly comparable to BacktestResult.mean_return. The second
+        # check replaces the old NO_D2_PAPER_KEYWORDS paper-id substring
+        # matcher (Lo-MacKinlay / Poterba-Summers / AQR streaks) with a
+        # typed dispatch on `headline_claim.kind`. D2 only runs when there's
+        # a meaningful comparison target.
         claimed_monthly = body.paper_claim_monthly_return
         claimed_tstat = body.paper_claim_tstat
         is_placeholder = (
             claimed_monthly is None
             or (claimed_monthly == 0.0 and (claimed_tstat is None or claimed_tstat == 0.0))
         )
-        is_no_target_paper = any(k in pid_lower for k in NO_D2_PAPER_KEYWORDS)
-        if is_placeholder or is_no_target_paper:
+        spec_hc = getattr(spec, "headline_claim", None)
+        spec_hc_is_non_comparable = (
+            spec_hc is not None
+            and not _headline_claim_comparable_to_mean_return(spec_hc)
+        )
+        if is_placeholder or spec_hc_is_non_comparable:
+            kind = getattr(spec_hc, "kind", None) if spec_hc is not None else None
             reason = (
-                "Specification-test or factor-tilt paper — does not report a "
-                "tradeable monthly long-short return. D2 compares the engine's "
-                "replication against the paper's headline; without one, "
-                "gap-closure is mathematically ill-defined."
-                if is_no_target_paper else
-                "Paper does not report a tradeable monthly long-short return. "
-                "D2 compares the engine's replication against the paper's headline; "
-                "without one, gap-closure is mathematically ill-defined."
+                f"Paper's headline_claim is a `{kind}` variant — comparison "
+                f"is statistic-to-statistic (or per-leg Sharpe), not "
+                f"mean_return-to-mean_return. D2's mutation experiments "
+                f"would compare apples to oranges. Skipping D2; the "
+                f"verdict strip renders the variant-appropriate narrative."
+                if spec_hc_is_non_comparable else
+                "Caller supplied a placeholder claim (monthly_return is None "
+                "or 0.0 with zero/null t-stat). D2 needs a real target."
             )
             return _sanitize_for_json({
                 "diagnosis": None,
@@ -1019,7 +1215,7 @@ def diagnose_endpoint(body: DiagnoseBody):
             })
 
         try:
-            store, store_kind = _build_store_for_spec(spec)
+            prepared = prepare_spec_for_engine(spec)
         except FileNotFoundError as e:
             return JSONResponse(
                 status_code=503,
@@ -1029,18 +1225,11 @@ def diagnose_endpoint(body: DiagnoseBody):
                 },
             )
 
-        spec, clip_note, window_info = _prepare_spec_window(spec, store_kind)
-        spec, kind_fallback_msg = _engine_kind_fallback(spec)
-        spec, lookback_clamp_msg = _engine_lookback_clamp(spec, window_info)
-        spec, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(spec)
         baseline = run_backtest_cached(
-            spec, store, transaction_cost_bps=body.transaction_cost_bps
+            prepared.spec, prepared.store, transaction_cost_bps=body.transaction_cost_bps
         )
-        baseline = _flag_window_substitution(baseline, window_info)
-        extra_flags = [m for m in (kind_fallback_msg, lookback_clamp_msg, portfolio_coercion_msg) if m]
-        if extra_flags:
-            flags = list(baseline.data_quality_flags) + extra_flags
-            baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
+        baseline = _flag_window_substitution(baseline, prepared.window_info)
+        baseline = _attach_engine_prep_to_result(baseline, prepared)
         claim = PaperClaim(
             claim_id="caller_supplied_headline",
             metric="monthly_long_short_return",
@@ -1070,10 +1259,10 @@ def diagnose_endpoint(body: DiagnoseBody):
         for attempt in (1, 2):
             try:
                 diagnosis = diagnose(
-                    spec=spec,
+                    spec=prepared.spec,
                     baseline_result=baseline,
                     claim=claim,
-                    store=store,
+                    store=prepared.store,
                     max_experiments=max_exp,
                     transaction_cost_bps=body.transaction_cost_bps,
                 )
@@ -1085,24 +1274,22 @@ def diagnose_endpoint(body: DiagnoseBody):
                     continue
                 diagnosis_error = f"D2 LLM unavailable: {type(ae).__name__} {getattr(ae, 'status_code', '?')}"
                 break
-        for _src in store.sources.values():
-            try: _src.close()
-            except AttributeError: pass
+        _close_store_safely(prepared.store)
         if diagnosis is None:
             return _sanitize_for_json({
                 "diagnosis": None,
                 "n_experiments": 0,
                 "diagnosis_error": diagnosis_error,
-                "clip_note": clip_note,
-                "window_info": window_info,
-                "kind_fallback": kind_fallback_msg,
+                "clip_note": (prepared.window_info or {}).get("message"),
+                "window_info": prepared.window_info,
+                "spec_adaptations": [a.model_dump() for a in prepared.spec_adaptations],
             })
         return _sanitize_for_json({
             "diagnosis": diagnosis.model_dump(mode="json"),
             "n_experiments": diagnosis.experiments_run,
-            "clip_note": clip_note,
-            "window_info": window_info,
-            "kind_fallback": kind_fallback_msg,
+            "clip_note": (prepared.window_info or {}).get("message"),
+            "window_info": prepared.window_info,
+            "spec_adaptations": [a.model_dump() for a in prepared.spec_adaptations],
         })
     except BaseException as e:
         traceback.print_exc()
@@ -1132,206 +1319,28 @@ PIPELINE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
-# Known-paper headline-claim registry
-# ---------------------------------------------------------------------------
-# A1 occasionally fails to extract a paper's headline number (placeholder
-# zero, wrong page, or — in the case of papers reporting Sharpe ratios /
-# nested conditioning sorts — a structural shape that doesn't fit the
-# `monthly_long_short_return` schema cleanly). When that happens, D2
-# diagnoses the gap from 0.0 instead of the paper's real claim and the
-# verdict strip says "no headline claim extracted."
+# Phase F (dehardcode refactor): the registry block that used to live here
+# — _known_headline_claim, _known_paper_force_no_claim,
+# _apply_known_headline_claim, _apply_known_verification_report — has been
+# DELETED. A1 (with the Phase C prompt) emits a typed HeadlineClaim variant
+# directly (MonthlyLongShortReturn / NestedConditionalSortReturn /
+# SharpeRatioDifference / VarianceRatioStatistic / RegressionAlpha /
+# StatisticalTestClaim). The frontend dispatches on .kind, not on paper_id
+# substring matches.
 #
-# This registry is the belt-and-suspenders fix: papers we've manually
-# verified the headline for get a hardcoded `HeadlineClaim` that overrides
-# (or fills in for) whatever A1 emitted. Match is by paper_id stem
-# (filename) — the simplest stable key the frontend already uses. If you
-# add a new entry, also bust the matching DivergenceDiagnosis cache entry
-# so D2 re-runs against the correct claim.
-def _known_headline_claim(paper_id: str):
-    """Return a `HeadlineClaim` for a known paper, or None to defer to A1."""
-    from src.specs.paper_metrics import HeadlineClaim
-    from src.specs.claims import SupportingQuote
-
-    pid = (paper_id or "").lower()
-    # Cheng, Hameed, Subrahmanyam, Titman (2017) — "Short-Term Reversals:
-    # The Effects of Past Returns and Institutional Exits". Headline: 1M
-    # contrarian return WITHIN the 3M-loser quintile = 1.683%/mo, t=7.80.
-    # The paper's nested 3M-loser conditioning sort can't be expressed via
-    # a single ReplicationSpec field — A1 was extracting the unconditional
-    # 1M reversal (0%/mo placeholder) and D2 was scoring gaps from zero.
-    if "cheng_hameed_subrahmanyam_titman_2017" in pid or "short_term_reversals" in pid:
-        return HeadlineClaim(
-            metric="monthly_long_short_return",
-            monthly_return=0.01683,
-            t_stat=7.80,
-            window_label="January 1980 – December 2011",
-            paper_location="Table II, Panel A — 1M reversal within 3M-loser quintile",
-            # Verbatim table-cell quote from page 9: the 4th value (1.683)
-            # is the headline 3M-loser/1M-reversal cell; the corresponding
-            # t-statistic (7.80) appears in the parenthesized row below.
-            supporting_quote=SupportingQuote(
-                text="Loser 1.857*** 1.642*** 1.038*** 1.683*** 1.678*** 1.345*** 0.811*** 1.452***",
-                page=9,
-                verified=True,
-                match_confidence=1.0,
-            ),
-        )
-    # Asness, Moskowitz, Pedersen (2013) — "Value and Momentum Everywhere".
-    # Headline tradeable: US-stock momentum P3-P1 (top-tercile minus
-    # bottom-tercile, equal-weighted, 11/1 past-return signal). Paper
-    # reports annualized 5.4%/yr ⇒ 0.0045/mo, t=2.08 (Table I Panel A,
-    # US-stock momentum P3-P1 column). The PDF stores Table I with
-    # mirrored character order so A1 cannot recover this verbatim — we
-    # hardcode the headline so D2/D3/verdict-strip have a real target.
-    if "asness_moskowitz_pedersen_2013" in pid or "value_and_momentum_everywhere" in pid:
-        return HeadlineClaim(
-            metric="monthly_long_short_return",
-            monthly_return=0.0045,
-            t_stat=2.08,
-            window_label="January 1972 – July 2011",
-            paper_location="Table I, Panel A — US-stock momentum P3-P1 (high-minus-low tercile spread, equal-weighted)",
-            supporting_quote=SupportingQuote(
-                text="manually-curated headline (registry override — Table I Panel A US momentum P3-P1: 5.4%/yr annualized, t=2.08)",
-                page=12,
-                verified=False,
-                match_confidence=0.0,
-            ),
-        )
-    return None
-
-
-def _apply_known_headline_claim(spec: ReplicationSpec, paper_id: str):
-    """Override `spec.headline_claim` with the registry value when present.
-
-    Returns (possibly-updated spec, override message or None).
-    """
-    hc = _known_headline_claim(paper_id)
-    if hc is None:
-        return spec, None
-    note = (
-        f"[KNOWN_PAPER_REGISTRY] paper_id={paper_id!r} headline_claim "
-        f"overridden to monthly_return={hc.monthly_return}, t_stat={hc.t_stat} "
-        f"({hc.paper_location}). A1's value (if any) discarded — see "
-        f"_known_headline_claim in app/main.py for the curated entry."
-    )
-    return spec.model_copy(update={"headline_claim": hc, "notes": (spec.notes + " " + note).strip()[:500]}), note
-
-
-# ---------------------------------------------------------------------------
-# Known-paper verification-report registry
-# ---------------------------------------------------------------------------
-# Some papers have PDFs that are genuinely garbled at the byte level
-# (Lo & MacKinlay 1988 — characters reversed/scrambled in the OCR
-# output for pages 12-17). A1's only honest move is to emit a single
-# universe quote and decline to extract clean quotes for signal /
-# portfolio / rebalance, which then makes A2 show "1 quote, 1 fail" —
-# misleading because the paper itself is fine, the OCR isn't.
+# For the two PDF-unrecoverable papers (LM-1988 byte-scrambled, AMP-2013
+# mirrored Table I), the replacement mechanism is PaperExtractionOverride
+# in src/specs/extraction_overrides.py — narrow, typed, bound to a verbatim
+# quote checksum rather than paper_id, loaded from
+# data/extraction_overrides/ at extraction time.
 #
-# For these papers we synthesize a curated verification report with 4-5
-# conceptually-grounded checks (text we manually transcribed from the
-# paper) so the Verification tab reflects "the spec is supported by the
-# paper" even though the OCR stream isn't searchable. One check is
-# kept failing intentionally so the report doesn't look fabricated —
-# A2 having 1/5 fail is normal and credible.
-def _apply_known_verification_report(verified, paper_id: str):
-    """Augment / replace the verification report for known papers whose
-    PDF text is too garbled for A2 to verify quotes against.
+# JT-1993's universe.min_price=10.0 patch is the one remaining paper-id
+# keyed override; it stays in src/agents/extraction/extraction_verifier.py's
+# PAPER_ID_OVERRIDES with a documented reason (the paper is silent on the
+# industry-standard penny-stock filter and we keep the published-replication-
+# community default).
+# ---------------------------------------------------------------------------
 
-    Returns (possibly-updated verified, override message or None).
-    """
-    from src.specs.verification import (
-        VerificationReport, QuoteVerification, SupportCheck,
-    )
-    from src.specs.claims import SupportingQuote
-
-    pid = (paper_id or "").lower()
-    # Lo & MacKinlay (1988). PDF stream is byte-scrambled across the
-    # methodology section so deterministic fuzzy matching can't anchor
-    # any of A1's quotes. Hand-transcribe the conceptual passages.
-    if "lo_mackinlay_1988" in pid or "random_walks" in pid:
-        checks = (
-            QuoteVerification(
-                field_path="universe",
-                quote=SupportingQuote(
-                    text="weekly returns from CRSP NYSE-AMEX over the period from September 1962 to December 1985",
-                    page=13, verified=True, match_confidence=0.92,
-                ),
-                severity="medium",
-                verification_status="verified", verified_page=13,
-                verification_confidence=0.92,
-                support_check=SupportCheck(supports="yes", reason="Confirms NYSE-AMEX universe and 1962-1985 weekly cadence."),
-                failed=False,
-            ),
-            QuoteVerification(
-                field_path="signal",
-                quote=SupportingQuote(
-                    text="the variance of the q-period return is q times the variance of the one-period return under the random walk null",
-                    page=4, verified=True, match_confidence=0.88,
-                ),
-                severity="high",
-                verification_status="verified", verified_page=4,
-                verification_confidence=0.88,
-                support_check=SupportCheck(supports="yes", reason="Defines the variance ratio test statistic at the heart of the paper."),
-                failed=False,
-            ),
-            QuoteVerification(
-                field_path="portfolio",
-                quote=SupportingQuote(
-                    text="five equal-weighted portfolios formed by sorting on market value of equity",
-                    page=16, verified=True, match_confidence=0.85,
-                ),
-                severity="high",
-                verification_status="verified", verified_page=16,
-                verification_confidence=0.85,
-                support_check=SupportCheck(supports="yes", reason="Confirms equal-weighted size-quintile portfolio construction."),
-                failed=False,
-            ),
-            QuoteVerification(
-                field_path="signal.lookback_months",
-                quote=SupportingQuote(
-                    text="the entire 1216-week sample from September 6, 1962 to December 26, 1985",
-                    page=12, verified=True, match_confidence=0.81,
-                ),
-                severity="medium",
-                verification_status="verified", verified_page=12,
-                verification_confidence=0.81,
-                support_check=SupportCheck(supports="yes", reason="Confirms full-sample variance estimation horizon."),
-                failed=False,
-            ),
-            # One intentional fail — the page reference for the size-portfolio
-            # methodology disagrees across the OCR stream (pages 16 vs 17).
-            # Marking it failed at medium severity is honest and produces a
-            # 4/5-pass report that doesn't look fabricated.
-            QuoteVerification(
-                field_path="rebalance.execution_lag_days",
-                quote=SupportingQuote(
-                    text="formation-to-trade execution lag not specified in the paper",
-                    page=1, verified=False, match_confidence=0.0,
-                ),
-                severity="medium",
-                verification_status="not_found", verified_page=None,
-                verification_confidence=0.0,
-                support_check=None,
-                failed=True,
-                failure_reason="Paper does not specify execution lag; A1 defaulted to T+1 per convention.",
-            ),
-        )
-        new_report = VerificationReport(
-            checks=checks,
-            overall_confidence="medium",
-            n_checks=len(checks),
-            n_failed_high=0,
-            n_failed_medium=1,
-            n_failed_low=0,
-            retry_count=verified.report.retry_count,
-            retry_feedback_history=verified.report.retry_feedback_history,
-        )
-        return verified.model_copy(update={"report": new_report}), (
-            f"[KNOWN_PAPER_REGISTRY] paper_id={paper_id!r} verification report "
-            f"synthesized — original PDF text is byte-scrambled; curated quote "
-            f"set used (4/5 verified, 1 medium fail on undocumented exec lag)."
-        )
-    return verified, None
 
 
 def _set_stage(job_id: str, stage: str, status: str = "active") -> None:
@@ -1399,22 +1408,12 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         _set_stage(job_id, "a1", "active")
         verified = extract_and_verify(pdf, max_retries=3, use_cache=True)
         spec = verified.spec
-        # Known-paper headline-claim override. For papers with structurally
-        # awkward headlines (Cheng-Hameed-Subrahmanyam-Titman 2017's
-        # nested 3M-loser conditioning sort, etc.) A1 frequently emits a
-        # placeholder zero or the wrong number, which inverts D2's gap
-        # scoring and breaks every downstream verdict. The registry in
-        # _known_headline_claim is the curated belt-and-suspenders fix.
-        spec, override_note = _apply_known_headline_claim(spec, paper_id)
-        if override_note:
-            verified = verified.model_copy(update={"spec": spec})
-        # Verification-report override for papers with garbled PDFs (Lo &
-        # MacKinlay 1988). A1's single quote fails the deterministic
-        # verifier through no fault of A1's — the OCR stream is scrambled.
-        # Replace the report with curated quotes (4/5 pass, 1 medium fail).
-        verified, verif_note = _apply_known_verification_report(verified, paper_id)
-        if verif_note:
-            print(verif_note)  # surfaces in server console for audit
+        # Phase F: no _apply_known_headline_claim and no
+        # _apply_known_verification_report. A1 (with the Phase C prompt)
+        # emits a typed HeadlineClaim variant directly. PDF-unrecoverable
+        # papers (LM-1988, AMP-2013) route through PaperExtractionOverride
+        # in extraction_verifier.py, which is bound to evidence (quote
+        # checksums), not paper_id.
         bundle["paper_title"] = spec.paper_title
         bundle["verified_spec"] = verified.model_dump(mode="json")
         # If A1 extracted a headline claim (or the registry filled it in),
@@ -1444,89 +1443,47 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
         _set_stage(job_id, "b", "done")
         _set_partial(job_id, bundle)
 
-        # Dispatch to the right data store BEFORE clipping / fallbacks so
-        # KF-factor papers (universe.name='ken_french_factors') don't get
-        # wrongly routed through the defeatbeta panel — that mismatch was
-        # silently turning the AQR streaks pipeline into a no-op
-        # (panel start 1994-11 vs spec start 1973-01 ⇒ window substitution
-        # to 1995-2026, then signal lookup against the wrong universe ⇒
-        # zero return observations).
-        store, store_kind = _build_store_for_spec(spec_with_critique)
-        clipped, _clip_note, window_info = _prepare_spec_window(
-            spec_with_critique, store_kind
-        )
-        bundle["window_info"] = window_info
-        # Substitute signal.kind / portfolio.weighting if the engine can't run
-        # them (e.g. 'custom' / 'signal_weighted') so the rest of the pipeline
-        # (battery, D2, D3) still produces output the SPA can render. The
-        # structured-proxy substitution(s) are flagged below.
-        clipped, kind_fallback_msg = _engine_kind_fallback(clipped)
-        clipped, lookback_clamp_msg = _engine_lookback_clamp(clipped, window_info)
-        clipped, weighting_fallback_msg = _engine_weighting_fallback(clipped)
-        clipped, portfolio_coercion_msg = _coerce_portfolio_for_factor_universe(clipped)
-        # Track the store for finally-block close (only DefeatBeta needs it)
-        src = getattr(store, "_defeatbeta_src", None)
+        # Phase F: single prepare_spec_for_engine call. Replaces the
+        # five-line prep block that used to live here AND in /api/backtest,
+        # /api/robustness, /api/diagnose. Adds the typed SpecAdaptation
+        # records that downstream tabs branch on.
+        prepared = prepare_spec_for_engine(spec_with_critique)
+        bundle["window_info"] = prepared.window_info
+        bundle["spec_adaptations"] = [a.model_dump() for a in prepared.spec_adaptations]
         try:
             _set_stage(job_id, "engine", "active")
-            baseline = run_backtest_cached(clipped, store, transaction_cost_bps=0.0)
-            baseline = _flag_window_substitution(baseline, window_info)
-            # Strip the AQR-streaks-specific cross-section warning from
-            # cached results when the current paper is NOT AQR streaks.
-            # Lo-MacKinlay / Poterba-Summers legitimately use stock-level VR
-            # — leaving "AQR sorts JKP factors not individuals" in the
-            # backtest flag list misattributes a different paper's caveat.
-            baseline = _rewrite_aqr_flag_for_non_aqr_paper(baseline, paper_id)
-            extra_flags = [
-                m for m in (
-                    kind_fallback_msg, lookback_clamp_msg,
-                    weighting_fallback_msg, portfolio_coercion_msg,
-                ) if m
-            ]
-            if extra_flags:
-                flags = list(baseline.data_quality_flags) + extra_flags
-                baseline = baseline.model_copy(update={"data_quality_flags": tuple(flags)})
+            baseline = run_backtest_cached(prepared.spec, prepared.store, transaction_cost_bps=0.0)
+            baseline = _flag_window_substitution(baseline, prepared.window_info)
+            baseline = _attach_engine_prep_to_result(baseline, prepared)
             bundle["backtest"] = baseline.model_dump(mode="json")
             _set_stage(job_id, "engine", "done")
             _set_partial(job_id, bundle)
 
-            # Build the D2/D3 PaperClaim from the spec's headline_claim
-            # when A1 extracted one — otherwise D2 measures the gap from
-            # zero (placeholder) instead of from the paper's actual
-            # claimed value, which inverts mutation scoring and produces
-            # nonsensical "no_single_cause_identified" diagnoses (the
-            # Cheng-Hameed-Subrahmanyam-Titman 2017 short-term reversals
-            # paper had a real headline of 1.683%/mo t=7.80 but D2 was
-            # diagnosing the gap from 0.0%).
-            hc = getattr(clipped, "headline_claim", None)
-            if hc is not None and getattr(hc, "monthly_return", None) is not None:
-                paper_claim = PaperClaim(
-                    claim_id=f"{paper_id}_headline",
-                    metric="long_short_monthly_return",
-                    claimed_value=float(hc.monthly_return),
-                    claimed_tstat=hc.t_stat,
-                    claimed_units="fraction_per_month",
-                    paper_location=hc.paper_location or "headline_claim from A1",
-                    supporting_quote=hc.supporting_quote,
-                )
-            else:
-                paper_claim = PaperClaim(
-                    claim_id=f"{paper_id}_baseline",
-                    metric="long_short_monthly_return",
-                    claimed_value=0.0,
-                    claimed_tstat=None,
-                    claimed_units="fraction_per_month",
-                    paper_location="N/A (A1 did not extract a headline claim)",
-                    supporting_quote=SupportingQuote(text="placeholder", page=1),
-                )
-
-            _set_stage(job_id, "d2", "active")
-            diagnosis = diagnose(
-                spec=clipped, baseline_result=baseline,
-                claim=paper_claim, store=store,
-                max_experiments=3, use_cache=True,
+            # Build the D2/D3 PaperClaim via the variant-aware helper. For
+            # comparable variants (MonthlyLongShortReturn /
+            # NestedConditionalSortReturn / RegressionAlpha) we hand D2 a
+            # real claim. For non-comparable variants (Sharpe-Δ, VR
+            # statistic, generic stat test) we skip D2 outright — there's
+            # nothing for it to mutate-toward.
+            hc = getattr(prepared.spec, "headline_claim", None)
+            paper_claim = _build_paper_claim_for_d2_d3(
+                hc, baseline_for_placeholder=baseline,
             )
-            bundle["diagnosis"] = diagnosis.model_dump(mode="json")
-            _set_stage(job_id, "d2", "done")
+
+            run_d2 = _headline_claim_comparable_to_mean_return(hc) and paper_claim is not None
+            if run_d2:
+                _set_stage(job_id, "d2", "active")
+                diagnosis = diagnose(
+                    spec=prepared.spec, baseline_result=baseline,
+                    claim=paper_claim, store=prepared.store,
+                    max_experiments=3, use_cache=True,
+                )
+                bundle["diagnosis"] = diagnosis.model_dump(mode="json")
+                _set_stage(job_id, "d2", "done")
+            else:
+                bundle["diagnosis"] = None
+                bundle["diagnosis_skipped"] = "non_comparable_headline_claim_variant"
+                _set_stage(job_id, "d2", "done")
             _set_partial(job_id, bundle)
 
             _set_stage(job_id, "battery", "active")
@@ -1538,7 +1495,7 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             scorecard = None
             try:
                 scorecard = run_battery(
-                    clipped, store,
+                    prepared.spec, prepared.store,
                     families=("costs", "liquidity", "capacity", "data_quality"),
                 )
                 bundle["robustness"] = {
@@ -1557,30 +1514,20 @@ def _run_pipeline(job_id: str, paper_id: str) -> None:
             _set_partial(job_id, bundle)
 
             if scorecard is None:
-                # Skip D3 if the battery couldn't produce a scorecard — D3
-                # judges the scorecard, so without one there's nothing to
-                # judge. Pipeline still finishes successfully with the
-                # rest of the bundle.
                 _finish_job(job_id, result=_sanitize_for_json(bundle))
                 return
 
             _set_stage(job_id, "d3", "active")
+            d3_claim = paper_claim if paper_claim is not None else _build_paper_claim_for_d2_d3(None, baseline)
             judgment = judge(
-                scorecard=scorecard, baseline=baseline, claim=paper_claim,
+                scorecard=scorecard, baseline=baseline, claim=d3_claim,
                 use_cache=True,
             )
             bundle["robustness"]["judgment"] = judgment.model_dump(mode="json")
             _set_stage(job_id, "d3", "done")
             _set_partial(job_id, bundle)
         finally:
-            # Only the defeatbeta-backed PointInTimeDataStore needs explicit
-            # close (parquet handles); KenFrenchFactorStore is in-memory.
-            close = getattr(store, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:
-                    pass
+            _close_store_safely(prepared.store)
 
         _finish_job(job_id, result=_sanitize_for_json(bundle))
 

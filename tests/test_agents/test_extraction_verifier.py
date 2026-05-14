@@ -29,7 +29,7 @@ from src.specs import (
     UniverseSpec,
 )
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 
 # Phrase that is demonstrably page-7 unique on the JT PDF (used elsewhere in
 # the suite). Keep this near the imports so regenerations are localised.

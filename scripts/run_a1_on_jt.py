@@ -12,7 +12,7 @@ from pathlib import Path
 from src.agents.extraction import extract_methodology
 from src.pdf.parser import parse_pdf
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 OUT = Path("outputs/jt_a1_extraction.json")
 
 

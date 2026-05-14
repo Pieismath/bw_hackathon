@@ -16,7 +16,7 @@ import pytest
 from src.pdf.parser import ParsedPDF, parse_pdf
 from src.pdf.quote_verifier import VerificationResult, verify
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 
 
 @pytest.fixture(scope="module")

@@ -180,9 +180,15 @@ explicitly notes when a swap couldn't be expressed as a single mutation.
 - **Non-equity asset classes.** UniverseSpec.asset_class accepts bond /
   fx / commodity / macro literals, but the engine and data store only
   exercise equity paths.
-- **Fundamentals signals before 2019.** defeatbeta_yahoo's
+- **Fundamentals signals before 2019-05.** defeatbeta_yahoo's
   stock_statement coverage starts 2019-05; A1 may extract a 1965-1989
-  fundamentals spec but B2 will block it with `low` fidelity.
+  fundamentals spec but B2 will block it with `low` fidelity. (Phase E)
+  The engine implements `fundamental_ratio` natively for the five
+  ratios in `src/engine/signals.py::FUNDAMENTAL_RATIO_REGISTRY`, but
+  emits a typed `SpecAdaptation(kind='fundamentals_unavailable_in_window')`
+  when the spec's window pre-dates 2019-05 — a Bridgewater-style data
+  source with longer coverage plugs in by satisfying the
+  `FundamentalDataSource` Protocol without any engine changes.
 - **Non-US universes.** The data store's only universe is
   `defeatbeta_all_equities` (US). Region literal accepts global /
   developed / emerging but no path implements them.
@@ -190,6 +196,63 @@ explicitly notes when a swap couldn't be expressed as a single mutation.
   `daily` but the engine's tranche logic is monthly-indexed. Will raise
   via the existing validator (`holding_period_months` requires
   `frequency == "monthly"`).
+
+### Paper-id-keyed overrides retained as documented exceptions (Phase F)
+
+After the Phase B–F dehardcode refactor, two narrow paper-id-keyed
+overrides remain in the codebase. Both are config-shaped knobs with
+in-code documentation explaining the property of the paper that justifies
+the exception; both relate to JT-1993.
+
+- **`extraction_verifier.PAPER_ID_OVERRIDES["jegadeesh_titman_1993"]
+  ["universe.min_price"] = 10.0`** — the paper is silent on a price
+  filter, but the published replication community (AQR, Asness-style
+  follow-ups) consistently uses a $5-$10 floor to filter penny-stock
+  noise. $10 matches the modern academic convention. An A1
+  `AmbiguityFlag` would force the user to dial it; we accept the
+  industry-standard default as an override.
+
+- **`app/main.py::ENGINE_WINDOW_OVERRIDES["jegadeesh_titman_1993"] =
+  (date(2007, 1, 1), date(2026, 4, 2))`** — JT's true sample window is
+  1965-1989 but the defeatbeta panel only starts 1994-11-30. The
+  default OOS window (`data_min → data_max`) would run on the 1995-2026
+  panel, which is fine but includes the early-2000s tech-stock noise
+  and the 2008-09 momentum crash without much context. The override
+  picks 2007-2026 for a cleaner "post-crash momentum revival" demo. The
+  spec's `start_date` / `end_date` still carry the paper's true window
+  so the verdict strip's "Paper Window 1965-1989 → Replication Window
+  2007-2026" tag remains honest.
+
+For new papers, prefer A1's `AmbiguityFlag` defaults (industry-standard
+convention as the default; surface as an ambiguity flag) or a typed
+`PaperExtractionOverride` (`data/extraction_overrides/*.yaml`, bound to
+a verbatim-quote checksum) over adding another paper-id entry here.
+
+### Papers that need `PaperExtractionOverride` entries (Phase F)
+
+Two papers in the active corpus need human-curated overrides before
+they extract cleanly post-Phase-F. Until populated, the pipeline will
+run but with degraded fidelity:
+
+- **`lo_mackinlay_1988`** — text stream is byte-scrambled across the
+  methodology section; pdfplumber and pypdfium2 both fail. A1 emits a
+  single quote that A2 cannot verify. Phase F deleted the curated
+  `VerificationReport` patch; the override mechanism replaces it but
+  requires a human to transcribe a verbatim quote from a non-scrambled
+  span (the abstract works) and compute the SHA-256 checksum via
+  `src.specs.compute_quote_checksum`. See
+  `src/specs/EXTRACTION_OVERRIDES.md` for the YAML schema. Until
+  populated, A2's verification report will show 1/1 fail on the
+  unverifiable quote and `headline_claim` will be None.
+
+- **`asness_moskowitz_pedersen_2013`** — Table I cells are stored with
+  mirrored character order; A1 cannot recover the verbatim US-momentum
+  P3-P1 cell. Phase F deleted the hardcoded `_known_headline_claim`
+  entry; same override mechanism applies. Until populated,
+  `headline_claim` will be whatever A1 extracts (likely the global
+  combo Sharpe ratio, which doesn't fit the `MonthlyLongShortReturn`
+  variant — A1 will likely emit a high-severity `AmbiguityFlag` and
+  fall through to `StatisticalTestClaim` or null).
 
 ---
 

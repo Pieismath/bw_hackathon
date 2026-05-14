@@ -346,35 +346,39 @@ def extract_and_verify(
             "notes": (spec.notes + note_addendum)[:].strip(),
         })
 
-    # Per-paper post-extraction overrides. Used when A1 emits a spec that
-    # is *technically* faithful to the paper but trips a known engine
-    # interaction (e.g. double-encoded contrarian direction via both
-    # signal.direction='long_low' AND long_bucket=1/short_bucket=5 — the
-    # engine cancels them and trades momentum). Keys are paper_id values
-    # that should match exactly. Values are flat dotted-path → new value
-    # maps (e.g. "signal.direction", "universe.min_price"). Underscore-
-    # prefixed keys ("_note") are metadata, not field paths.
+    # Per-paper post-extraction overrides. Narrow, typed exit hatch for the
+    # rare paper where A1 cannot produce a fully-canonical spec from the PDF
+    # text alone (e.g. the paper is silent on an industry-standard convention,
+    # or a PDF-extraction artifact makes one specific field unrecoverable).
+    # Keys are exact paper_id matches; values are dotted-path → new value
+    # maps. Underscore-prefixed keys ("_note") are metadata, not field paths.
+    #
+    # NB (Phase D, dehardcode refactor): the historical CHST 2017 override
+    # (`signal.direction = "long_high"` to undo A1's double-encoded contrarian
+    # spec) is no longer needed. PortfolioSpec's `_check_buckets` validator
+    # now rejects non-canonical bucket encodings unconditionally, forcing
+    # A1 (via the Phase C prompt update) to emit `(direction='long_low',
+    # long_bucket=n_buckets, short_bucket=1)` for any contrarian paper.
+    # The validator is the structural fix; the override is deleted.
+    #
+    # The remaining entry (JT-1993 min_price) is documented below.
     PAPER_ID_OVERRIDES: dict[str, dict] = {
-        "cheng_hameed_subrahmanyam_titman_2017": {
-            "signal.direction": "long_high",
-            "_note": (
-                "Engine post-fix: signal.direction set to 'long_high' so the "
-                "(direction, long_bucket=1, short_bucket=5) triple resolves to "
-                "the paper's long-loser / short-winner contrarian. Without this, "
-                "direction='long_low' double-encodes contrarianism and the engine "
-                "ends up trading momentum (verified by D2 mutation experiment)."
-            ),
-        },
         "jegadeesh_titman_1993": {
             "universe.min_price": 10.0,
             "_note": (
-                "Engine post-fix: universe.min_price set to 10 (filters penny "
-                "stocks). The paper's true window (1965-1989) is preserved on "
-                "the spec; the engine runs on a 2007-2026 OOS window per the "
-                "ENGINE_WINDOW_OVERRIDES table in app/main.py — that captures "
-                "the post-2009-crash momentum revival without misrepresenting "
-                "the paper. The KF factor-comparison banner independently "
-                "validates the original 1965-1989 claim."
+                "JT 1993 is silent on a price filter. The published replication "
+                "community consistently uses a $5-$10 floor to avoid penny-stock "
+                "noise; $10 matches the original Jegadeesh-Titman defaults and "
+                "the AQR / Asness-style follow-up convention. We keep this as a "
+                "paper-id-keyed override (rather than an A1 AmbiguityFlag default) "
+                "because A1 has no in-paper textual evidence to back the choice, "
+                "and emitting a high-severity AmbiguityFlag with no `default_chosen` "
+                "would block the pipeline. This is the ONE paper-id-keyed override "
+                "remaining after the Phase D dehardcode refactor — see "
+                "LIMITATIONS.md 'Out of scope' for the rationale. The paper's true "
+                "window (1965-1989) is preserved on the spec; the engine runs on a "
+                "2007-2026 OOS window per ENGINE_WINDOW_OVERRIDES in app/main.py "
+                "(Phase F migrates that to a typed OutOfSamplePolicy spec field)."
             ),
         },
     }
@@ -400,6 +404,23 @@ def extract_and_verify(
             "notes": (spec.notes + " [" + pid_override.get("_note", "post-fix applied") + "]").strip(),
         })
 
+    # Apply PaperExtractionOverride entries from data/extraction_overrides/.
+    # These are the typed, quote-checksum-bound overrides that replace the
+    # deleted Phase F registries (_known_headline_claim,
+    # _known_paper_force_no_claim, _apply_known_verification_report). Each
+    # override is keyed on a SHA-256 hash of a verbatim PDF span — if the
+    # PDF is replaced and the evidence span no longer matches, the override
+    # silently disables. This is the "narrow, typed, principled" exit hatch
+    # for PDF-unrecoverable papers (LM-1988, AMP-2013).
+    try:
+        spec = _apply_paper_extraction_overrides(spec, pdf)
+    except Exception as e:
+        # An override file with bad YAML / wrong shape should not block
+        # extraction. Log and continue — A1's raw output still flows.
+        import traceback as _tb
+        _tb.print_exc()
+        print(f"[extract_and_verify] PaperExtractionOverride loader failed: {e}")
+
     # Record retry metadata on the report
     report_with_meta = report.model_copy(
         update={
@@ -408,3 +429,111 @@ def extract_and_verify(
         }
     )
     return VerifiedReplicationSpec(spec=spec, report=report_with_meta)
+
+
+def _apply_paper_extraction_overrides(spec, pdf):
+    """Read every override file under data/extraction_overrides/ and apply
+    any whose ``paper_quote_checksum`` matches a span of the parsed PDF.
+
+    Loaders are intentionally lenient — missing directory, empty files,
+    malformed YAML, or non-matching checksums all silently no-op so the
+    extraction pipeline doesn't depend on this mechanism being populated.
+    """
+    from pathlib import Path as _P
+
+    from src.pdf.quote_verifier import normalize_for_match
+    from src.specs.extraction_overrides import (
+        PaperExtractionOverride,
+        compute_quote_checksum,
+    )
+
+    override_dir = _P("data/extraction_overrides")
+    if not override_dir.exists():
+        return spec
+
+    try:
+        import yaml
+    except ImportError:
+        # Optional dependency; if pyyaml isn't installed, skip silently.
+        return spec
+
+    # Build the normalized parsed-PDF text once. Each override's
+    # paper_quote_checksum hashes the same normalization.
+    all_text = "\n".join(pdf.get_text_by_page())
+
+    overrides_applied: list[PaperExtractionOverride] = []
+    for path in sorted(override_dir.glob("*.yaml")):
+        try:
+            entries = yaml.safe_load(path.read_text()) or []
+            if not isinstance(entries, list):
+                continue
+        except Exception:
+            continue
+        for entry in entries:
+            try:
+                ov = PaperExtractionOverride.model_validate(entry)
+            except Exception:
+                continue
+            # Re-derive the checksum from the supporting_quote's text in
+            # the override payload (if present), and compare against the
+            # declared checksum. If the supporting_quote isn't part of
+            # the payload (e.g. for non-headline overrides), match the
+            # checksum against any spanning text in the parsed PDF —
+            # we hash candidate spans by sliding-window over normalized
+            # text.
+            payload = ov.override_value or {}
+            sq = payload.get("supporting_quote") if isinstance(payload, dict) else None
+            quote_text = (sq or {}).get("text") if isinstance(sq, dict) else None
+            if quote_text:
+                computed = compute_quote_checksum(quote_text)
+                if computed != ov.paper_quote_checksum:
+                    # Checksum mismatch — the override's payload text and
+                    # the declared checksum don't agree. Skip silently.
+                    continue
+                # Also confirm the quote text is actually in the PDF.
+                if normalize_for_match(quote_text) not in normalize_for_match(all_text):
+                    continue
+            else:
+                # No quote in payload — skip; we don't support
+                # checksum-without-quote at this stage.
+                continue
+
+            # Apply by field_path.
+            spec = _apply_override_payload(spec, ov)
+            overrides_applied.append(ov)
+
+    if overrides_applied:
+        ov_note = " ".join(
+            f"[OVERRIDE: {o.field_path}={o.reason[:60]!r}]"
+            for o in overrides_applied
+        )
+        spec = spec.model_copy(update={
+            "notes": (spec.notes + " " + ov_note).strip()[:500],
+        })
+    return spec
+
+
+def _apply_override_payload(spec, ov):
+    """Resolve `ov.field_path` and replace its value with `ov.override_value`.
+
+    Supports top-level fields (e.g. ``"headline_claim"``) and one-level
+    nesting (e.g. ``"signal.direction"``). Deeper paths can be added if a
+    future override needs them.
+    """
+    from src.specs import HeadlineClaim
+    from pydantic import TypeAdapter
+
+    parts = ov.field_path.split(".")
+    if parts == ["headline_claim"]:
+        validated = TypeAdapter(HeadlineClaim).validate_python(ov.override_value)
+        return spec.model_copy(update={"headline_claim": validated})
+    if len(parts) == 1:
+        return spec.model_copy(update={parts[0]: ov.override_value})
+    if len(parts) == 2:
+        parent_name, child_name = parts
+        parent = getattr(spec, parent_name, None)
+        if parent is None:
+            return spec
+        new_parent = parent.model_copy(update={child_name: ov.override_value})
+        return spec.model_copy(update={parent_name: new_parent})
+    return spec

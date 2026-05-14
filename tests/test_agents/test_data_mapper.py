@@ -29,7 +29,7 @@ from src.specs import (
     VerifiedDataMapping,
 )
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 
 
 def _minimal_spec(start=date(1995, 1, 1), end=date(2020, 12, 31)) -> ReplicationSpec:

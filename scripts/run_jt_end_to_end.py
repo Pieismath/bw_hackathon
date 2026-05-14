@@ -23,7 +23,7 @@ from src.data import DefeatBetaYahooSource, PointInTimeDataStore
 from src.engine import run_backtest
 from src.pdf.parser import parse_pdf
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 OUT_DIR = Path("outputs")
 
 # Paper's headline claim, from Table I Panel A J=6/K=6 row (+ body text p.11).

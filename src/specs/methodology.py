@@ -155,6 +155,27 @@ class PortfolioSpec(BaseModel):
                 raise ValueError(
                     f"short_bucket {self.short_bucket} out of range [1, {self.n_buckets}]"
                 )
+            # Canonical encoding: long_bucket=n_buckets, short_bucket=1. The
+            # sign of the strategy is carried entirely by signal.direction
+            # (compute_signal negates the score when direction='long_low'),
+            # so the portfolio layer always longs the top-bucket of the
+            # post-direction-flip ranking. The earlier idiom of double-
+            # encoding contrarianism via (direction='long_low',
+            # long_bucket=1, short_bucket=n_buckets) is now rejected
+            # because the two negations cancel and the engine trades the
+            # WRONG sign of the strategy. See A1 prompt rule 9.
+            if self.long_bucket != self.n_buckets or self.short_bucket != 1:
+                raise ValueError(
+                    f"long_short specs require canonical encoding "
+                    f"long_bucket=n_buckets ({self.n_buckets}) and "
+                    f"short_bucket=1; got long_bucket={self.long_bucket}, "
+                    f"short_bucket={self.short_bucket}. The sign of the "
+                    f"strategy is carried by signal.direction "
+                    f"('long_high' for momentum, 'long_low' for reversal) — "
+                    f"the engine negates the signal accordingly and the "
+                    f"portfolio always longs bucket n_buckets. See A1 "
+                    f"prompt rule 9."
+                )
         return self
 
 

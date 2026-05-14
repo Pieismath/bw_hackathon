@@ -15,7 +15,7 @@ from src.agents.extraction import (
 from src.pdf.parser import parse_pdf
 from src.specs import AdversarialCritique, Criticism
 
-JT_PDF = Path("data/papers/jegadeesh_titman_1993_momentum.pdf")
+JT_PDF = Path("data/papers/jegadeesh_titman_1993_returns_to_buying_winners_and_selling_losers.pdf")
 
 
 def test_reviewer_uses_sonnet_46():

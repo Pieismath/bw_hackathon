@@ -186,6 +186,99 @@ def test_portfolio_spec_long_only_ok():
     assert p.short_bucket is None
 
 
+def test_portfolio_spec_long_short_canonical_form_accepted():
+    """Canonical form: long_bucket=n_buckets, short_bucket=1. The sign of the
+    strategy is carried by signal.direction. This is the only legal encoding
+    for long_short specs after the Phase D dehardcode refactor."""
+    p = PortfolioSpec(
+        construction="decile", n_buckets=10, long_bucket=10, short_bucket=1,
+        long_short=True,
+    )
+    assert p.long_bucket == 10
+    assert p.short_bucket == 1
+
+
+def test_portfolio_spec_long_short_inverted_buckets_rejected():
+    """Inverted-bucket encoding (long_bucket=1, short_bucket=N) is rejected.
+    Earlier the CHST 2017 paper extraction emitted this pattern alongside
+    direction='long_low', double-encoding the contrarian sign and causing the
+    engine to trade momentum. The PAPER_ID_OVERRIDES dict patched it for
+    that paper; the validator now rejects the pattern unconditionally so
+    A1 can never produce a double-encoded spec again."""
+    with pytest.raises(ValidationError, match="canonical encoding"):
+        PortfolioSpec(
+            construction="quintile", n_buckets=5, long_bucket=1, short_bucket=5,
+            long_short=True,
+        )
+
+
+def test_portfolio_spec_long_short_intermediate_buckets_rejected():
+    """An intermediate long_bucket (e.g. P4 vs. P2 on a 5-bucket sort) is
+    also non-canonical and rejected. The engine assumes long_bucket is the
+    top of the post-direction ranking. Papers that genuinely want non-extreme
+    buckets need a different mechanism (extending the spec to express the
+    cross-section subset)."""
+    with pytest.raises(ValidationError, match="canonical encoding"):
+        PortfolioSpec(
+            construction="quintile", n_buckets=5, long_bucket=4, short_bucket=2,
+            long_short=True,
+        )
+
+
+def test_headline_claim_accepts_stringified_json_from_llm_toolcall():
+    """Anthropic tool-use occasionally surfaces a discriminated-union nested
+    field as a JSON-encoded STRING (rather than a nested JSON object) when
+    the schema combines `oneOf` + `discriminator` + `Optional`. A
+    `BeforeValidator` on the union decodes the string before Pydantic's
+    union resolver runs so the LLM's output validates without a retry.
+
+    Regression for a real failure in
+    test_fold_high_severity_adds_flags_to_spec where A1 emitted
+    `headline_claim` as a string like '{"kind": "monthly_long_short_return",
+    "monthly_return": 0.0086, ...}' and the spec validator rejected the
+    whole ReplicationSpec.
+    """
+    from pydantic import TypeAdapter
+    from src.specs import HeadlineClaim, MonthlyLongShortReturn
+    import json as _json
+
+    nested = {
+        "kind": "monthly_long_short_return",
+        "monthly_return": 0.0086,
+        "t_stat": 2.95,
+        "window_label": "Jan 1965 – Dec 1989",
+        "paper_location": "Table I Panel A",
+        "supporting_quote": {
+            "text": "Buy-sell 0.0086", "page": 7,
+            "verified": True, "match_confidence": 1.0,
+        },
+    }
+    ta = TypeAdapter(HeadlineClaim)
+
+    parsed_from_dict = ta.validate_python(nested)
+    parsed_from_string = ta.validate_python(_json.dumps(nested))
+    assert isinstance(parsed_from_dict, MonthlyLongShortReturn)
+    assert isinstance(parsed_from_string, MonthlyLongShortReturn)
+    assert parsed_from_dict == parsed_from_string
+
+
+def test_portfolio_spec_long_only_allows_any_bucket():
+    """Long-only specs are unaffected by the canonical-form rule. The
+    long_bucket integer represents which percentile the paper longs; e.g.
+    a paper that goes long the bottom decile (PS-1988-style long-only
+    contrarian) sets long_bucket=1."""
+    p1 = PortfolioSpec(
+        construction="decile", n_buckets=10, long_bucket=1,
+        long_short=False, gross_exposure=1.0,
+    )
+    p2 = PortfolioSpec(
+        construction="decile", n_buckets=10, long_bucket=5,
+        long_short=False, gross_exposure=1.0,
+    )
+    assert p1.long_bucket == 1
+    assert p2.long_bucket == 5
+
+
 def test_rebalance_spec_defaults_to_T_plus_1():
     r = RebalanceSpec()
     assert r.execution_lag_days == 1

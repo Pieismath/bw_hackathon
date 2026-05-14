@@ -44,6 +44,7 @@ from src.specs import (
     ProvenanceRecord,
     ReplicationSpec,
     ReturnObservation,
+    SpecAdaptation,
 )
 
 
@@ -102,34 +103,33 @@ def run_backtest(
     # Universe-aware flags: the cross-section caveat for variance_ratio
     # only applies when we're sorting individual stocks. When the spec
     # targets the Ken French factor universe, the cross-section IS the
-    # right kind of object (factor portfolios, like AQR's), so the flag
-    # would be misleading.
+    # right kind of object (factor portfolios), so the flag would be
+    # misleading.
     is_stock_universe = spec.universe.name != "ken_french_factors"
-    # The original "AQR sorts 153 JKP factors, not individuals" warning is
-    # only correct for the AQR 2024 streaks paper. For the variance-ratio
-    # mean-reversion test papers (Lo-MacKinlay 1988, Poterba-Summers 1988)
-    # individual-stock VR IS what the paper concept-implies, and the AQR
-    # disclaimer would be flat wrong (a different paper's caveat leaking
-    # into a different paper's report). Disambiguate by paper_title — the
-    # AQR streaks paper is identifiable by "streaky" / "streak" tokens.
-    paper_title_lower = (spec.paper_title or "").lower()
-    is_aqr_streaks_paper = (
-        "streaky" in paper_title_lower
-        or "streak" in paper_title_lower
-        or ("aqr" in paper_title_lower and "hidden" in paper_title_lower)
-    )
-    if spec.signal.kind == "variance_ratio" and is_stock_universe and is_aqr_streaks_paper:
+    # Phase F (dehardcode refactor): dispatch on the typed HeadlineClaim
+    # variant instead of paper_title substring. SharpeRatioDifference
+    # variant ⇒ factor-zoo Sharpe-spread paper (AQR-streaks-like) — the
+    # cross-section caveat is that the engine sorts a 6-factor KF panel
+    # vs. the paper's wider JKP zoo. VarianceRatioStatistic variant ⇒
+    # statistical mean-reversion test on stocks/indices (LM-1988, PS-1988)
+    # — individual-stock VR IS the concept-implied portfolio. The two
+    # narratives are decided by `headline_claim.kind`, not by detecting
+    # "streaky" in the title.
+    hc = getattr(spec, "headline_claim", None)
+    hc_kind = getattr(hc, "kind", None)
+    is_sharpe_spread_paper = hc_kind == "sharpe_ratio_difference"
+    if spec.signal.kind == "variance_ratio" and is_stock_universe and is_sharpe_spread_paper:
         data_quality_flags.append(
-            "variance_ratio computed on individual stocks. The AQR streaks "
-            "paper sorts JKP factor portfolios (153 factors) by VR, not "
-            "individual equities. The statistic is identical; the cross-"
-            "section is not. Direction and concept of the paper are "
-            "preserved, but the stock-level VR is a different — and noisier "
-            "— object than the factor-level VR. Treat the headline number "
-            "as concept-faithful, NOT as a like-for-like replication of the "
-            "paper's portfolio."
+            "variance_ratio computed on individual stocks. The paper's "
+            "headline_claim is a sharpe_ratio_difference shape — i.e. it "
+            "sorts a factor library by VR-streakiness and reports the "
+            "top-vs-bottom Sharpe gap, not a stock-level statistic. The "
+            "engine's stock-cross-section is concept-faithful, not "
+            "factor-zoo-faithful. Treat the headline number as a coverage-"
+            "shaped proxy, NOT a like-for-like replication of the paper's "
+            "portfolio."
         )
-    if spec.signal.kind == "variance_ratio" and is_stock_universe and not is_aqr_streaks_paper:
+    if spec.signal.kind == "variance_ratio" and is_stock_universe and not is_sharpe_spread_paper:
         data_quality_flags.append(
             "variance_ratio strategy ran on individual stocks: the engine "
             "computes per-stock VR(k) = Var(rolling-12m return) / (12 × "
@@ -166,6 +166,19 @@ def run_backtest(
         )
 
     # --- Form tranches at each formation date --------------------------
+    # fundamental_ratio signals need a callable that resolves
+    # (ticker, as_of_date) → FundamentalsSnapshot. PointInTimeDataStore
+    # satisfies the FundamentalDataSource Protocol; the KF factor store
+    # does not (factors have no fundamentals), so the combination of
+    # universe=ken_french_factors + kind=fundamental_ratio is incoherent
+    # — compute_signal will raise NotImplementedError and the engine
+    # layer's prep chain catches it via a typed SpecAdaptation.
+    fundamentals_getter = (
+        getattr(store, "get_fundamentals", None)
+        if spec.signal.kind == "fundamental_ratio"
+        else None
+    )
+
     formation_dates = month_ends_in(spec.start_date, spec.end_date)
     tranches: list[Tranche] = []
     for formation_date in formation_dates:
@@ -178,7 +191,8 @@ def run_backtest(
             min_history_days=30 * (signal_warmup_months + 1),
         ).data
         signal = compute_signal(
-            spec.signal, price_panel, formation_date, universe
+            spec.signal, price_panel, formation_date, universe,
+            fundamentals_getter=fundamentals_getter,
         )
         if signal.empty or signal.dropna().empty:
             continue
